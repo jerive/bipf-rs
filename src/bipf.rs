@@ -1,10 +1,8 @@
 use indexmap::IndexMap;
-use bytes::BytesMut;
 use serde_json::Value;
 use integer_encoding::VarInt;
 use either::*;
-use bytes::BufMut;
-use bytes::Bytes;
+use bytes::{BytesMut, BufMut, Bytes};
 use std::io::*;
 
 const STRING: usize = 0;    // 000
@@ -36,8 +34,10 @@ impl JType {
             Value::String(v) => JType::String { l: v.len(), v },
             Value::Array(arr) => {
                 let v: Vec<JType> = arr.into_iter().map(|x| JType::new(x)).collect();
-                let l: usize = v.iter().map(|x| JType::length(&x)).sum();
-                let l = l + (l << TAG_SIZE).required_space();
+                let l: usize = v.iter().map(|x| {
+                    let l = JType::length(&x);
+                    l + (l << TAG_SIZE).required_space()
+                }).sum();
                 JType::Array { v, l }
             },
             Value::Number(n) => {
@@ -67,7 +67,6 @@ impl JType {
 
     pub fn encode_rec(&self, buf: &mut BytesMut, start: usize) -> usize { 
         let length_varint = self.length() << TAG_SIZE | self.get_type();
-        println!("Start {} on buf {:?}", start, buf);
         let varint = length_varint.encode_var_vec();
         let varint_length = varint.len();
         buf.put_slice(&varint);
@@ -119,9 +118,7 @@ impl JType {
     }
 
     pub fn encode(&self) -> Bytes {
-        println!("Length {}", self.length());
         let mut buf: BytesMut = BytesMut::with_capacity(self.length());
-        println!("Buf {:?}", buf);
         self.encode_rec(&mut buf, 0);
 
         buf.freeze()
@@ -163,7 +160,6 @@ fn decode_rec(buf: &Bytes, start: usize) -> Result<Value> {
 
     let field_type = tag & TAG_MASK;
     let len = tag >> TAG_SIZE;
-    println!("Decoded type {}, length {}", field_type, len);
 
     decode_type(field_type, buf, start + bytes, len)
 }
@@ -231,8 +227,6 @@ fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
 
         let field_type = tag & TAG_MASK;
         let len = tag >> TAG_SIZE;
-
-        println!("Decoded type {}, length {}", field_type, len);
 
         vec.push(decode_type(field_type, buf, start + c, len)?);
 
