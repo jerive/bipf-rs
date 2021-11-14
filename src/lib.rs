@@ -11,8 +11,7 @@ mod tests {
             #[test]
             fn $name() {
                 let input = $value;
-                let intermediary = JType::new(input.clone());
-                let buf = intermediary.encode();
+                let buf = input.to_bipf();
                 // println!("{:?}", buf.to_vec());
 
                 let deserialized = decode(&buf);

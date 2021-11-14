@@ -17,7 +17,17 @@ const BOOLNULL: usize = 6;  // 110 //and use the rest of the byte as true/false/
 const TAG_SIZE: usize = 3;
 const TAG_MASK: usize = 7;
 
-pub enum JType {
+pub trait Bipf {
+    fn to_bipf(&self) -> Bytes;
+}
+
+impl Bipf for Value {
+    fn to_bipf(&self) -> Bytes { 
+        JType::new(self).encode()
+    }
+}
+
+enum JType {
     String { v: String, l: usize },
     Int { v: i32 },
     Double { v: Either<i64, f64> },
@@ -27,11 +37,11 @@ pub enum JType {
 }
 
 impl JType {
-    pub fn new(input: Value) -> JType {
+    pub fn new(input: &Value) -> JType {
         match input {
             Value::Null => JType::BoolNull { v: None, l: 0 },
-            Value::Bool(v) => JType::BoolNull { v: Some(v), l: 1 },
-            Value::String(v) => JType::String { l: v.len(), v },
+            Value::Bool(v) => JType::BoolNull { v: Some(*v), l: 1 },
+            Value::String(s) => JType::String { l: s.len(), v: s.clone() },
             Value::Array(arr) => {
                 let v: Vec<JType> = arr.into_iter().map(|x| JType::new(x)).collect();
                 let l: usize = v.iter().map(|x| {
