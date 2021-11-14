@@ -27,9 +27,17 @@ fn criterion_benchmark(c: &mut Criterion) {
         "license": "MIT"
       });
     let serialized = json.to_bipf();
-    c.bench_function("serialization simple", |b| b.iter(|| black_box(json.clone().to_bipf())));
-    c.bench_function("deserialization simple", |b| b.iter(|| decode(black_box(&serialized.clone()))));
-    c.bench_function("seek key", |b| b.iter(|| black_box({
+    let json_string = json.to_string();
+    let json_bytes = json_string.as_bytes();
+    c.bench_function("binary.encode", |b| b.iter(|| black_box(json.clone().to_bipf())));
+    c.bench_function("binary.decode", |b| b.iter(|| decode(black_box(&serialized))));
+    c.bench_function("serde_json.parse", |b| b.iter(|| {
+      serde_json::to_value(black_box(json_bytes)).unwrap();
+    }));
+    c.bench_function("serde_json.stringify", |b| b.iter(|| {
+      black_box(&json).to_string();
+    }));
+    c.bench_function("binary.seek", |b| b.iter(|| black_box({
       let k = seek_key(&serialized, Some(0), String::from("dependencies")).unwrap();
       let s = seek_key(&serialized, Some(k), String::from("varint")).unwrap();
       decode_rec(&serialized, s)

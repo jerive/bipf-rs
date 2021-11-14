@@ -6,9 +6,24 @@ Rust port of https://github.com/ssbc/bipf
 
 ## Benchmark (Rust vs JS)
 
-### JS 
 
-as described in https://npm.io/package/@staltz/bipf
+### Rust
+
+Benchmark is as described in https://npm.io/package/@staltz/bipf
+
+```
+operation               ops/ms  imporovement to JS
+
+binary.encode           190     (x2)
+serde_json.stringify    650
+
+binary.decode           450     (x2)
+serde_json.parse        316
+
+binary.seek seek        7700    (x4)
+```
+
+### JS 
 
 ```
 operation, ops/ms
@@ -26,14 +41,4 @@ binary.seekPath(encoded) 769.2307692307693
 binary.seekPath(compiled) 1666.6666666666667
 binary.compare() 1666.6666666666667
 
-```
-
-### Rust
-
-```
-operation, ops/ms
-
-binary.encode 190 (x2)
-binary.decode 450 (x2)
-binary.seek seek 7700 (x4)
 ```
