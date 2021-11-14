@@ -29,6 +29,7 @@ fn criterion_benchmark(c: &mut Criterion) {
     let serialized = json.to_bipf();
     c.bench_function("serialization simple", |b| b.iter(|| black_box(json.clone().to_bipf())));
     c.bench_function("deserialization simple", |b| b.iter(|| decode(black_box(&serialized.clone()))));
+    c.bench_function("seek key", |b| b.iter(|| black_box(seek_key(serialized.clone(), Some(0), String::from("dependencies")))));
 }
 
 criterion_group!(benches, criterion_benchmark);
