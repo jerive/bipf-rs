@@ -1,0 +1,13 @@
+[package]
+name = "bipf-rs"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+serde_json = { version ="1.0", features = ["preserve_order"] }
+integer-encoding = "3.0.2"
+either = "1.6.1"
+indexmap = "1.7.0"
+bytes = "1.1.0"
