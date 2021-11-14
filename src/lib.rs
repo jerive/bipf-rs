@@ -43,11 +43,10 @@ mod tests {
     #[test]
     fn test_seek_key() {
         let bipf = json!({"hello": "unnecessary", "dependencies": { "rust": "v2.0.1" }}).to_bipf();
-        let cloned = bipf.clone();
-        let start = seek_key(bipf, Some(0), String::from("dependencies"));
+        let start = seek_key(&bipf, Some(0), String::from("dependencies"));
 
         assert_eq!(start.is_some(), true);
 
-        assert_eq!(decode_rec(&cloned, start.unwrap()).unwrap().is_object(), true);
+        assert_eq!(decode_rec(&bipf, start.unwrap()).unwrap().is_object(), true);
     }
 }

@@ -182,7 +182,7 @@ pub fn decode_rec(buf: &Bytes, start: usize) -> Result<Value> {
     decode_type(field_type, buf, start + bytes, len)
 }
 
-fn decode_type(field_type: usize, buf: &Bytes, start: usize, len: usize) -> Result<Value>  {
+pub fn decode_type(field_type: usize, buf: &Bytes, start: usize, len: usize) -> Result<Value>  {
     match field_type {
         STRING => decode_string(buf, start, len),
         BOOLNULL => decode_boolnull(buf, start, len),
@@ -194,7 +194,7 @@ fn decode_type(field_type: usize, buf: &Bytes, start: usize, len: usize) -> Resu
     }
 }
 
-fn decode_boolnull(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_boolnull(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     if len == 0 {
         Ok(Value::Null)
     } else {
@@ -212,7 +212,7 @@ fn decode_boolnull(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     }
 }
 
-fn decode_string(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_string(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     let raw_str = std::str::from_utf8(&buf[start..start + len]);
     match raw_str {
         std::result::Result::Ok(v) => Ok(Value::String(String::from(v))),
@@ -220,17 +220,17 @@ fn decode_string(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     }    
 }
 
-fn decode_integer(buf: &Bytes, start: usize) -> Result<Value> {
+pub fn decode_integer(buf: &Bytes, start: usize) -> Result<Value> {
     let bytes: [u8; 4] = buf[start..start + 4].try_into().expect("slice with incorrect length");
     Ok(serde_json::to_value(i32::from_le_bytes(bytes))?)
 }
 
-fn decode_double(buf: &Bytes, start: usize) -> Result<Value> {
+pub fn decode_double(buf: &Bytes, start: usize) -> Result<Value> {
     let bytes: [u8; 8] = buf[start..start+8].try_into().expect("slice with incorrect length");
     Ok(serde_json::to_value(f64::from_le_bytes(bytes))?)
 }
 
-fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     let mut c = 0;
     let mut vec: Vec<Value> = Vec::new();
     
@@ -290,7 +290,7 @@ pub fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     Ok(Value::Object(map))
 }
 
-pub fn seek_key(bytes: Bytes, start: Option<usize>, target: String) -> Option<usize> {
+pub fn seek_key<'a>(bytes: &'a Bytes, start: Option<usize>, target: String) -> Option<usize> {
     match start {
         None => None,
         Some(start) => {
@@ -313,7 +313,8 @@ pub fn seek_key(bytes: Bytes, start: Option<usize>, target: String) -> Option<us
 
                     if key_type == STRING && target_length == key_len {
                         if target_buf.eq(&bytes[start + c..start + c + target_length]) {
-                            return Some(start + c + key_len)
+                            let next_start = start + c + key_len;
+                            return Some(next_start)
                         }
                     }
 
