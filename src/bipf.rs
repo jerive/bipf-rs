@@ -1,7 +1,6 @@
 use indexmap::IndexMap;
 use bytes::BytesMut;
 use serde_json::Value;
-use serde_json::Number;
 use integer_encoding::VarInt;
 use either::*;
 use bytes::BufMut;
@@ -209,14 +208,12 @@ fn decode_string(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
 
 fn decode_integer(buf: &Bytes, start: usize) -> Result<Value> {
     let bytes: [u8; 4] = buf[start..start + 4].try_into().expect("slice with incorrect length");
-    let num = Number::from_f64(i32::from_le_bytes(bytes) as f64);
-    Ok(Value::Number(num.unwrap()))
+    Ok(serde_json::to_value(i32::from_le_bytes(bytes))?)
 }
 
 fn decode_double(buf: &Bytes, start: usize) -> Result<Value> {
     let bytes: [u8; 8] = buf[start..start+8].try_into().expect("slice with incorrect length");
-    let num = Number::from_f64(f64::from_le_bytes(bytes));
-    Ok(Value::Number(num.unwrap()))
+    Ok(serde_json::to_value(f64::from_le_bytes(bytes))?)
 }
 
 fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
