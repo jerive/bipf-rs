@@ -17,6 +17,13 @@ const BOOLNULL: usize = 6;  // 110 //and use the rest of the byte as true/false/
 const TAG_SIZE: usize = 3;
 const TAG_MASK: usize = 7;
 
+const JSON_INT_SIZE: usize = 4;
+const JSON_DOUBLE_SIZE: usize = 4;
+const JSON_BOOL_SIZE: usize = 1;
+const JSON_NULL_SIZE: usize = 0;
+
+const MAX_I32: i64 = 4294967296;
+
 pub trait Bipf {
     fn to_bipf(&self) -> Bytes;
 }
@@ -39,8 +46,8 @@ enum JType {
 impl JType {
     pub fn new(input: &Value) -> JType {
         match input {
-            Value::Null => JType::BoolNull { v: None, l: 0 },
-            Value::Bool(v) => JType::BoolNull { v: Some(*v), l: 1 },
+            Value::Null => JType::BoolNull { v: None, l: JSON_NULL_SIZE },
+            Value::Bool(v) => JType::BoolNull { v: Some(*v), l: JSON_BOOL_SIZE },
             Value::String(s) => JType::String { l: s.len(), v: s.clone() },
             Value::Array(arr) => {
                 let v: Vec<JType> = arr.into_iter().map(|x| JType::new(x)).collect();
@@ -54,7 +61,7 @@ impl JType {
             Value::Number(n) => {
                 if n.is_i64() {
                     let i64 = n.as_i64().unwrap();
-                    if i64.abs() < 4294967296 {
+                    if i64.abs() < MAX_I32 {
                         JType::Int { v: i64 as i32 }
                     } else {
                         JType::Double { v: Left(i64) }
@@ -62,7 +69,7 @@ impl JType {
                 } else {
                     JType::Double { v: Right(n.as_f64().unwrap()) }
                 }
-            }
+            },
             Value::Object(o) => {
                 let v: IndexMap<String, JType> = o.into_iter().map(|(k, v)| (k.clone(), JType::new(v))).collect();
                 let mut l = 0;
@@ -73,7 +80,7 @@ impl JType {
                 }
                 JType::Object { v, l }
             }
-        }  
+        }
     }
 
     pub fn encode_rec(&self, buf: &mut BytesMut, start: usize) -> usize { 
@@ -89,16 +96,16 @@ impl JType {
             },
             JType::Int { v } => {
                 buf.put_slice(&v.to_le_bytes());
-                4
+                JSON_INT_SIZE
             },
             JType::Double { v } => match v {
                 Left(int) => {
                     buf.put_slice(&int.to_le_bytes());
-                    8
+                    JSON_DOUBLE_SIZE
                 },
                 Right(float) => {
                     buf.put_slice(&float.to_le_bytes());
-                    8
+                    JSON_DOUBLE_SIZE
                 }
             },
             JType::BoolNull { v, l: _ } => {
@@ -106,7 +113,7 @@ impl JType {
                     None => 0,
                     Some(b) => {
                         buf.put_u8(if *b { 1 } else { 0 });
-                        1
+                        JSON_BOOL_SIZE
                     }
                 }
             }
@@ -138,8 +145,8 @@ impl JType {
     pub fn length(&self) -> usize {
         match self {
             JType::String { v: _, l } => *l,
-            JType::Int { v: _ } => 4,
-            JType::Double { v: _ } => 8,
+            JType::Int { v: _ } => JSON_INT_SIZE,
+            JType::Double { v: _ } => JSON_DOUBLE_SIZE,
             JType::Array { v: _, l } => *l,
             JType::Object { v: _, l } => *l,
             JType::BoolNull { v: _, l } => *l,
@@ -162,7 +169,7 @@ pub fn decode(buf: &Bytes) -> Result<Value> {
     decode_rec(buf, 0)
 }
 
-fn decode_rec(buf: &Bytes, start: usize) -> Result<Value> {
+pub fn decode_rec(buf: &Bytes, start: usize) -> Result<Value> {
     let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start..]);
     let (tag, bytes) = match decoded {
         None => Err(Error::from(ErrorKind::InvalidInput)),
@@ -247,7 +254,7 @@ fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     Ok(Value::Array(vec))
 }
 
-fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     let mut c = 0;
     let mut map: serde_json::Map<String, Value> = serde_json::Map::new();
     
@@ -281,4 +288,44 @@ fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     }
 
     Ok(Value::Object(map))
+}
+
+pub fn seek_key(bytes: Bytes, start: Option<usize>, target: String) -> Option<usize> {
+    match start {
+        None => None,
+        Some(start) => {
+            let decoded: (usize, usize) = VarInt::decode_var(&bytes[start..])?;
+            let tag = decoded.0;
+            let ty = tag & TAG_MASK;
+
+            if ty != OBJECT {
+                None
+            } else {
+                let mut c = decoded.1;
+                let len = tag >> TAG_SIZE;
+                let target_length = target.len();
+                let target_buf = Bytes::from(target);
+                while c < len {
+                    let key_tag: (usize, usize) = VarInt::decode_var(&bytes[start + c..])?;
+                    c += key_tag.1;
+                    let key_len = key_tag.0 >> TAG_SIZE;
+                    let key_type = key_tag.0 & TAG_MASK;
+
+                    if key_type == STRING && target_length == key_len {
+                        if target_buf.eq(&bytes[start + c..start + c + target_length]) {
+                            return Some(start + c + key_len)
+                        }
+                    }
+
+                    c += key_len;
+                    let value_tag: (usize, usize) = VarInt::decode_var(&bytes[start + c..])?;
+                    c += value_tag.1;
+                    let value_len = value_tag.0 >> TAG_SIZE;
+                    c += value_len;
+                }
+
+                None
+            }
+        }
+    }
 }
