@@ -39,4 +39,5 @@ mod tests {
         object: json!({ "foo": true}),
         complex: json!([-1, {"foo": true }]),
     }
+
 }
