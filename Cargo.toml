@@ -2,6 +2,10 @@
 name = "bipf-rs"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "A Rust port of https://github.com/ssbc/bipf"
+homepage = "https://github.com/jerive/bipf-rs"
+repository = "https://github.com/jerive/bipf-rs.git"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
