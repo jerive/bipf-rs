@@ -44,10 +44,11 @@ impl JType {
             Value::String(s) => JType::String { l: s.len(), v: s.clone() },
             Value::Array(arr) => {
                 let v: Vec<JType> = arr.into_iter().map(|x| JType::new(x)).collect();
-                let l: usize = v.iter().map(|x| {
-                    let l = JType::length(&x);
-                    l + (l << TAG_SIZE).required_space()
-                }).sum();
+                let mut l = 0;
+                for x in &v {
+                    let base_len = JType::length(&x);
+                    l += base_len + (base_len << TAG_SIZE).required_space()
+                }
                 JType::Array { v, l }
             },
             Value::Number(n) => {
@@ -64,12 +65,12 @@ impl JType {
             }
             Value::Object(o) => {
                 let v: IndexMap<String, JType> = o.into_iter().map(|(k, v)| (k.clone(), JType::new(v))).collect();
-                let l = v.iter().map(|(k, v)| {
+                let mut l = 0;
+                for (k, v) in &v {
                     let key_len = k.len();
-                    let val_length = JType::length(v);
-                    key_len + (key_len << TAG_SIZE).required_space() + val_length + (val_length << TAG_SIZE).required_space()
-                }).sum();
-
+                    let val_length = JType::length(&v);
+                    l += key_len + (key_len << TAG_SIZE).required_space() + val_length + (val_length << TAG_SIZE).required_space()
+                }
                 JType::Object { v, l }
             }
         }  
