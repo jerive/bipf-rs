@@ -14,7 +14,7 @@ Benchmark is as described in https://npm.io/package/@staltz/bipf
 ```
 operation               ops/ms  imporovement to JS
 
-binary.encode           190     (x2)
+binary.encode           250     (x2.5)
 serde_json.stringify    650
 
 binary.decode           450     (x2)

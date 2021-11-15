@@ -29,26 +29,26 @@ pub trait Bipf {
 }
 
 impl Bipf for Value {
-    fn to_bipf(&self) -> Bytes { 
+    fn to_bipf(&self) -> Bytes {
         JType::new(self).encode()
     }
 }
 
-enum JType {
-    String { v: String, l: usize },
+enum JType<'a> {
+    String { v: &'a String, l: usize },
     Int { v: i32 },
     Double { v: Either<i64, f64> },
-    Array { v: Vec<JType>, l: usize },
-    Object { v: IndexMap<String, JType>, l: usize },
+    Array { v: Vec<JType<'a>>, l: usize },
+    Object { v: IndexMap<&'a String, JType<'a>>, l: usize },
     BoolNull { v: Option<bool>, l: usize }
 }
 
-impl JType {
-    pub fn new(input: &Value) -> JType {
+impl<'a> JType<'a> {
+    pub fn new(input: &'a Value) -> JType {
         match input {
             Value::Null => JType::BoolNull { v: None, l: JSON_NULL_SIZE },
             Value::Bool(v) => JType::BoolNull { v: Some(*v), l: JSON_BOOL_SIZE },
-            Value::String(s) => JType::String { l: s.len(), v: s.clone() },
+            Value::String(s) => JType::String { l: s.len(), v: s },
             Value::Array(arr) => {
                 let v: Vec<JType> = arr.into_iter().map(|x| JType::new(x)).collect();
                 let mut l = 0;
@@ -71,7 +71,7 @@ impl JType {
                 }
             },
             Value::Object(o) => {
-                let v: IndexMap<String, JType> = o.into_iter().map(|(k, v)| (k.clone(), JType::new(v))).collect();
+                let v: IndexMap<&'a String, JType> = o.into_iter().map(|(k, v)| (k, JType::new(v))).collect();
                 let mut l = 0;
                 for (k, v) in &v {
                     let key_len = k.len();
@@ -127,7 +127,7 @@ impl JType {
             JType::Object { v, l: _ } => {
                 let mut p = start;
                 for (k, u) in v {
-                    p += JType::String {v: k.clone(), l: k.len() }.encode_rec(buf, p);
+                    p += JType::String {v: k, l: k.len() }.encode_rec(buf, p);
                     p += u.encode_rec(buf, p);
                 }
                 p - start
@@ -290,7 +290,7 @@ pub fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     Ok(Value::Object(map))
 }
 
-pub fn seek_key<'a>(bytes: &'a Bytes, start: Option<usize>, target: String) -> Option<usize> {
+pub fn seek_key(bytes: &Bytes, start: Option<usize>, target: String) -> Option<usize> {
     match start {
         None => None,
         Some(start) => {
