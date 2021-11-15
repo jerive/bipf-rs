@@ -2,7 +2,6 @@ use indexmap::IndexMap;
 use serde_json::Value;
 use integer_encoding::VarInt;
 use either::*;
-use bytes::{BytesMut, BufMut, Bytes};
 use std::io::*;
 
 const STRING: usize = 0;    // 000
@@ -25,11 +24,11 @@ const JSON_NULL_SIZE: usize = 0;
 const MAX_I32: i64 = 4294967296;
 
 pub trait Bipf {
-    fn to_bipf(&self) -> Bytes;
+    fn to_bipf(&self) -> Vec<u8>;
 }
 
 impl Bipf for Value {
-    fn to_bipf(&self) -> Bytes {
+    fn to_bipf(&self) -> Vec<u8> {
         JType::new(self).encode()
     }
 }
@@ -50,7 +49,7 @@ impl<'a> JType<'a> {
             Value::Bool(v) => JType::BoolNull { v: Some(*v), l: JSON_BOOL_SIZE },
             Value::String(s) => JType::String { l: s.len(), v: s },
             Value::Array(arr) => {
-                let v: Vec<JType> = arr.into_iter().map(|x| JType::new(x)).collect();
+                let v: Vec<JType> = arr.iter().map(|x| JType::new(x)).collect();
                 let mut l = 0;
                 for x in &v {
                     let base_len = JType::length(&x);
@@ -71,7 +70,7 @@ impl<'a> JType<'a> {
                 }
             },
             Value::Object(o) => {
-                let v: IndexMap<&'a String, JType> = o.into_iter().map(|(k, v)| (k, JType::new(v))).collect();
+                let v: IndexMap<&'a String, JType> = o.iter().map(|(k, v)| (k, JType::new(v))).collect();
                 let mut l = 0;
                 for (k, v) in &v {
                     let key_len = k.len();
@@ -83,36 +82,34 @@ impl<'a> JType<'a> {
         }
     }
 
-    pub fn encode_rec(&self, buf: &mut BytesMut, start: usize) -> usize { 
+    pub fn encode_rec(&self, buf: &mut Vec<u8>, start: usize) -> usize { 
         let length_varint = self.length() << TAG_SIZE | self.get_type();
         let varint = length_varint.encode_var_vec();
         let varint_length = varint.len();
-        buf.put_slice(&varint);
+        buf.write(&varint);
 
         varint_length + match self {
             JType::String { v, l } => {
-                buf.put_slice(v.as_bytes());
+                buf.write(v.as_bytes());
                 *l
             },
             JType::Int { v } => {
-                buf.put_slice(&v.to_le_bytes());
+                buf.write(&v.to_le_bytes());
                 JSON_INT_SIZE
             },
-            JType::Double { v } => match v {
-                Left(int) => {
-                    buf.put_slice(&int.to_le_bytes());
-                    JSON_DOUBLE_SIZE
-                },
-                Right(float) => {
-                    buf.put_slice(&float.to_le_bytes());
-                    JSON_DOUBLE_SIZE
-                }
+            JType::Double { v: Left(int) } => {
+                buf.write(&int.to_le_bytes());
+                JSON_DOUBLE_SIZE
+            },
+            JType::Double { v: Right(float) } => {
+                buf.write(&float.to_le_bytes());
+                JSON_DOUBLE_SIZE
             },
             JType::BoolNull { v, l: _ } => {
                 match v {
-                    None => 0,
+                    None => JSON_NULL_SIZE,
                     Some(b) => {
-                        buf.put_u8(if *b { 1 } else { 0 });
+                        buf.write(&[if *b { 1 } else { 0 }]);
                         JSON_BOOL_SIZE
                     }
                 }
@@ -135,11 +132,13 @@ impl<'a> JType<'a> {
         }
     }
 
-    pub fn encode(&self) -> Bytes {
-        let mut buf: BytesMut = BytesMut::with_capacity(self.length());
+    pub fn encode(&self) -> Vec<u8> {
+        let mut buf: Vec<u8> = Vec::with_capacity(self.length());
         self.encode_rec(&mut buf, 0);
 
-        buf.freeze()
+        buf.flush();
+
+        buf
     }
 
     pub fn length(&self) -> usize {
@@ -165,11 +164,11 @@ impl<'a> JType<'a> {
     }
 }
 
-pub fn decode(buf: &Bytes) -> Result<Value> {
+pub fn decode(buf: &Vec<u8>) -> Result<Value> {
     decode_rec(buf, 0)
 }
 
-pub fn decode_rec(buf: &Bytes, start: usize) -> Result<Value> {
+pub fn decode_rec(buf: &Vec<u8>, start: usize) -> Result<Value> {
     let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start..]);
     let (tag, bytes) = match decoded {
         None => Err(Error::from(ErrorKind::InvalidInput)),
@@ -182,7 +181,7 @@ pub fn decode_rec(buf: &Bytes, start: usize) -> Result<Value> {
     decode_type(field_type, buf, start + bytes, len)
 }
 
-pub fn decode_type(field_type: usize, buf: &Bytes, start: usize, len: usize) -> Result<Value>  {
+pub fn decode_type(field_type: usize, buf: &Vec<u8>, start: usize, len: usize) -> Result<Value>  {
     match field_type {
         STRING => decode_string(buf, start, len),
         BOOLNULL => decode_boolnull(buf, start, len),
@@ -194,7 +193,7 @@ pub fn decode_type(field_type: usize, buf: &Bytes, start: usize, len: usize) -> 
     }
 }
 
-pub fn decode_boolnull(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_boolnull(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     if len == 0 {
         Ok(Value::Null)
     } else {
@@ -212,7 +211,7 @@ pub fn decode_boolnull(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     }
 }
 
-pub fn decode_string(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_string(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     let raw_str = std::str::from_utf8(&buf[start..start + len]);
     match raw_str {
         std::result::Result::Ok(v) => Ok(Value::String(String::from(v))),
@@ -220,17 +219,17 @@ pub fn decode_string(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     }    
 }
 
-pub fn decode_integer(buf: &Bytes, start: usize) -> Result<Value> {
+pub fn decode_integer(buf: &Vec<u8>, start: usize) -> Result<Value> {
     let bytes: [u8; 4] = buf[start..start + 4].try_into().expect("slice with incorrect length");
     Ok(serde_json::to_value(i32::from_le_bytes(bytes))?)
 }
 
-pub fn decode_double(buf: &Bytes, start: usize) -> Result<Value> {
+pub fn decode_double(buf: &Vec<u8>, start: usize) -> Result<Value> {
     let bytes: [u8; 8] = buf[start..start+8].try_into().expect("slice with incorrect length");
     Ok(serde_json::to_value(f64::from_le_bytes(bytes))?)
 }
 
-pub fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_array(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     let mut c = 0;
     let mut vec: Vec<Value> = Vec::new();
     
@@ -254,7 +253,7 @@ pub fn decode_array(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     Ok(Value::Array(vec))
 }
 
-pub fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
+pub fn decode_object(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     let mut c = 0;
     let mut map: serde_json::Map<String, Value> = serde_json::Map::new();
     
@@ -290,7 +289,7 @@ pub fn decode_object(buf: &Bytes, start: usize, len: usize) -> Result<Value> {
     Ok(Value::Object(map))
 }
 
-pub fn seek_key(bytes: &Bytes, start: Option<usize>, target: String) -> Option<usize> {
+pub fn seek_key(bytes: &Vec<u8>, start: Option<usize>, target: String) -> Option<usize> {
     match start {
         None => None,
         Some(start) => {
@@ -304,7 +303,7 @@ pub fn seek_key(bytes: &Bytes, start: Option<usize>, target: String) -> Option<u
                 let mut c = decoded.1;
                 let len = tag >> TAG_SIZE;
                 let target_length = target.len();
-                let target_buf = Bytes::from(target);
+                let target_buf = target.as_bytes();
                 while c < len {
                     let key_tag: (usize, usize) = VarInt::decode_var(&bytes[start + c..])?;
                     c += key_tag.1;

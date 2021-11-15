@@ -1,6 +1,6 @@
 [package]
 name = "bipf-rs"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "A Rust port of https://github.com/ssbc/bipf"
@@ -14,7 +14,6 @@ serde_json = { version ="1.0", features = ["preserve_order"] }
 integer-encoding = "3.0"
 either = "1.6"
 indexmap = "1.7"
-bytes = "1.1"
 
 [dev-dependencies]
 criterion = { version = "0.3", features = ["html_reports"] }

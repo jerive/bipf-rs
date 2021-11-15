@@ -12,7 +12,7 @@ Rust port of https://github.com/ssbc/bipf
 Benchmark is as described in https://npm.io/package/@staltz/bipf
 
 ```
-operation               ops/ms  imporovement to JS
+operation               ops/ms  improvement to JS
 
 binary.encode           250     (x2.5)
 serde_json.stringify    650
