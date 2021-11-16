@@ -24,11 +24,11 @@ const JSON_NULL_SIZE: usize = 0;
 const MAX_I32: i64 = 4294967296;
 
 pub trait Bipf {
-    fn to_bipf(&self) -> Vec<u8>;
+    fn to_bipf(&self) -> Result<Vec<u8>>;
 }
 
 impl Bipf for Value {
-    fn to_bipf(&self) -> Vec<u8> {
+    fn to_bipf(&self) -> Result<Vec<u8>> {
         JType::new(self).encode()
     }
 }
@@ -82,63 +82,58 @@ impl<'a> JType<'a> {
         }
     }
 
-    pub fn encode_rec(&self, buf: &mut Vec<u8>, start: usize) -> usize { 
+    pub fn encode_rec(&self, buf: &mut Vec<u8>, start: usize) -> Result<usize> {
         let length_varint = self.length() << TAG_SIZE | self.get_type();
         let varint = length_varint.encode_var_vec();
         let varint_length = varint.len();
-        buf.write(&varint);
+        buf.write(&varint)?;
 
-        varint_length + match self {
-            JType::String { v, l } => {
-                buf.write(v.as_bytes());
-                *l
+        Ok(varint_length + (match self {
+            JType::String { v, l: _ } => {
+                buf.write(v.as_bytes())
             },
             JType::Int { v } => {
-                buf.write(&v.to_le_bytes());
-                JSON_INT_SIZE
+                buf.write(&v.to_le_bytes())
             },
             JType::Double { v: Left(int) } => {
-                buf.write(&int.to_le_bytes());
-                JSON_DOUBLE_SIZE
+                buf.write(&int.to_le_bytes())
             },
             JType::Double { v: Right(float) } => {
-                buf.write(&float.to_le_bytes());
-                JSON_DOUBLE_SIZE
+                buf.write(&float.to_le_bytes())
             },
             JType::BoolNull { v, l: _ } => {
                 match v {
-                    None => JSON_NULL_SIZE,
+                    None => Ok(JSON_NULL_SIZE),
                     Some(b) => {
-                        buf.write(&[if *b { 1 } else { 0 }]);
-                        JSON_BOOL_SIZE
+                        buf.write(&[if *b { 1 } else { 0 }])
                     }
                 }
             }
             JType::Array { v, l: _ } => {
                 let mut p = start;
                 for i in v {
-                    p += i.encode_rec(buf, p)
+                    p += i.encode_rec(buf, p)?
                 }
-                p - start
+                Ok(p - start)
             },
             JType::Object { v, l: _ } => {
                 let mut p = start;
                 for (k, u) in v {
-                    p += JType::String {v: k, l: k.len() }.encode_rec(buf, p);
-                    p += u.encode_rec(buf, p);
+                    p += JType::String {v: k, l: k.len() }.encode_rec(buf, p)?;
+                    p += u.encode_rec(buf, p)?;
                 }
-                p - start
+                Ok(p - start)
             }
-        }
+        })?)
     }
 
-    pub fn encode(&self) -> Vec<u8> {
+    pub fn encode(&self) -> Result<Vec<u8>> {
         let mut buf: Vec<u8> = Vec::with_capacity(self.length());
-        self.encode_rec(&mut buf, 0);
+        self.encode_rec(&mut buf, 0)?;
 
-        buf.flush();
+        buf.flush()?;
 
-        buf
+        Ok(buf)
     }
 
     pub fn length(&self) -> usize {

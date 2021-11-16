@@ -26,7 +26,7 @@ fn criterion_benchmark(c: &mut Criterion) {
         "author": "Dominic Tarr <dominic.tarr@gmail.com> (http://dominictarr.com)",
         "license": "MIT"
       });
-    let serialized = json.to_bipf();
+    let serialized = json.to_bipf().unwrap();
     let json_string = json.to_string();
     let json_bytes = json_string.as_bytes();
     c.bench_function("binary.encode", |b| b.iter(|| black_box(json.clone().to_bipf())));

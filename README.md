@@ -20,10 +20,10 @@ serde_json.stringify    650
 binary.decode           450     (x2)
 serde_json.parse        316
 
-binary.seek seek        7700    (x4)
+binary.seek             7700    (x4)
 ```
 
-### JS 
+### JS
 
 ```
 operation, ops/ms

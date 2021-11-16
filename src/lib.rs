@@ -14,7 +14,7 @@ mod tests {
                 let buf = input.to_bipf();
                 // println!("{:?}", buf.to_vec());
 
-                let deserialized = decode(&buf);
+                let deserialized = decode(&buf.unwrap());
 
                 assert_eq!(deserialized.is_ok(), true);
                 assert_eq!(deserialized.unwrap().to_string(), input.to_string());
@@ -42,7 +42,7 @@ mod tests {
 
     #[test]
     fn test_seek_key() {
-        let bipf = json!({"hello": "unnecessary", "dependencies": { "rust": "v2.0.1" }}).to_bipf();
+        let bipf = json!({"hello": "unnecessary", "dependencies": { "rust": "v2.0.1" }}).to_bipf().unwrap();
         let start = seek_key(&bipf, Some(0), String::from("dependencies"));
 
         assert_eq!(start.is_some(), true);
