@@ -42,7 +42,9 @@ mod tests {
 
     #[test]
     fn test_seek_key() {
-        let bipf = json!({"hello": "unnecessary", "dependencies": { "rust": "v2.0.1" }}).to_bipf().unwrap();
+        let bipf = json!({"hello": "unnecessary", "dependencies": { "rust": "v2.0.1" }})
+            .to_bipf()
+            .unwrap();
         let start = seek_key(&bipf, Some(0), String::from("dependencies"));
 
         assert_eq!(start.is_some(), true);
