@@ -1,3 +1,11 @@
+use neon::prelude::*;
+
+#[neon::main]
+fn main(mut cx: ModuleContext) -> NeonResult<()> {
+    cx.export_function("decode", bipf::decode_neon)?;
+    Ok(())
+}
+
 pub mod bipf;
 
 #[cfg(test)]
