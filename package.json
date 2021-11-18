@@ -1,8 +1,9 @@
 {
-  "name": "bipf-rs",
-  "version": "0.1.0",
+  "name": "bipf-neon",
+  "version": "0.1.1",
   "description": "",
   "main": "index.node",
+  "files": ["index.node"],
   "scripts": {
     "build": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
     "build-debug": "npm run build --",
