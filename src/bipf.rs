@@ -349,3 +349,90 @@ pub fn seek_key(bytes: &Vec<u8>, start: Option<usize>, target: String) -> Option
         }
     }
 }
+
+pub fn seek_path<'a>(
+    buf: &Vec<u8>,
+    start: usize,
+    target: &Vec<u8>,
+    t_start: usize,
+) -> Result<Option<usize>> {
+    match decode_rec(&target, t_start)? {
+        Value::Array(ary) => {
+            let mut start = Some(start);
+            for i in 0..ary.len() {
+                let b = &ary[i];
+                start = match b {
+                    // The clone here is due to serde_json's inner map not supporting lifetimes... yet
+                    Value::String(str) => Ok(seek_key(buf, start, str.clone())),
+                    _ => Err(Error::new(
+                        ErrorKind::Other,
+                        "path must be array of strings",
+                    )),
+                }?;
+            }
+
+            Ok(None)
+        }
+        _ => Err(Error::new(ErrorKind::Other, "path must be encoded array")),
+    }
+}
+
+pub fn iterate(
+    buf: &Vec<u8>,
+    start: usize,
+    iter: fn(&Vec<u8>, usize, usize) -> bool,
+) -> Result<Option<usize>> {
+    let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start..]);
+    let (tag, bytes) = match decoded {
+        None => Err(Error::from(ErrorKind::InvalidInput)),
+        Some(v) => Result::Ok(v),
+    }?;
+
+    let field_type = tag & TAG_MASK;
+    let len = tag >> TAG_SIZE;
+
+    if field_type == OBJECT {
+        let mut c = bytes;
+        while c < len {
+            let key_start = start + c;
+            let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[key_start..]);
+            let (key_tag, bytes) = match decoded {
+                None => Err(Error::from(ErrorKind::InvalidInput)),
+                Some(v) => Result::Ok(v),
+            }?;
+
+            c += bytes + key_tag >> TAG_SIZE;
+
+            let value_start = start + c;
+            let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[value_start..]);
+            let (value_tag, bytes) = match decoded {
+                None => Err(Error::from(ErrorKind::InvalidInput)),
+                Some(v) => Result::Ok(v),
+            }?;
+
+            let next_start = bytes + (value_tag >> TAG_SIZE);
+            if iter(buf, value_start, key_start) {
+                return Ok(Some(start));
+            }
+            c += next_start;
+        }
+    } else if field_type == ARRAY {
+        let mut i = 0;
+        let mut c = bytes;
+        while c < len {
+            if iter(buf, start + c, i) {
+                return Ok(Some(start));
+            }
+            i += 1;
+            let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
+            let (value_tag, bytes) = match decoded {
+                None => Err(Error::from(ErrorKind::InvalidInput)),
+                Some(v) => Result::Ok(v),
+            }?;
+            c += bytes + (value_tag >> TAG_SIZE);
+        }
+        return Ok(Some(start));
+    }
+
+    Ok(None)
+}
