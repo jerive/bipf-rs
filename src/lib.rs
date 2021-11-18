@@ -1,12 +1,14 @@
 use neon::prelude::*;
+mod bipf;
+
+pub use crate::bipf::*;
+mod neon_impl;
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
-    cx.export_function("decode", bipf::decode_neon)?;
+    cx.export_function("decode", neon_impl::decode_neon)?;
     Ok(())
 }
-
-pub mod bipf;
 
 #[cfg(test)]
 mod tests {

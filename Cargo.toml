@@ -15,10 +15,6 @@ serde_json = { version ="1.0", features = ["preserve_order"] }
 integer-encoding = "3.0"
 either = "1.6"
 indexmap = "1.7"
-# node-bindgen = { version = "5.0" }
-
-# [build-dependencies]
-# node-bindgen = { version = "5.0", features = ["build"] }
 
 [dev-dependencies]
 criterion = { version = "0.3", features = ["html_reports"] }
@@ -29,7 +25,7 @@ default-features = false
 features = ["napi-6"]
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "lib"]
 
 [[bench]]
 name = "my_benchmark"

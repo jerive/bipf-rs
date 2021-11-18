@@ -1,28 +1,27 @@
 use either::*;
 use indexmap::IndexMap;
 use integer_encoding::VarInt;
-use neon::prelude::*;
 use serde_json::Value;
 use std::io::*;
 
-const STRING: usize = 0; // 000
-                         //const BUFFER: u64 = 1;    // 001
-const INT: usize = 2; // 010 //32bit int
-const DOUBLE: usize = 3; // 011 //use next 8 bytes to encode 64bit float
-const ARRAY: usize = 4; // 100
-const OBJECT: usize = 5; // 101
-const BOOLNULL: usize = 6; // 110 //and use the rest of the byte as true/false/null
-                           // const RESERVED: u64 = 7;  // 111
+pub const STRING: usize = 0; // 000
+pub const BUFFER: u64 = 1; // 001
+pub const INT: usize = 2; // 010 //32bit int
+pub const DOUBLE: usize = 3; // 011 //use next 8 bytes to encode 64bit float
+pub const ARRAY: usize = 4; // 100
+pub const OBJECT: usize = 5; // 101
+pub const BOOLNULL: usize = 6; // 110 //and use the rest of the byte as true/false/null
+pub const RESERVED: u64 = 7; // 111
 
-const TAG_SIZE: usize = 3;
-const TAG_MASK: usize = 7;
+pub const TAG_SIZE: usize = 3;
+pub const TAG_MASK: usize = 7;
 
-const JSON_INT_SIZE: usize = 4;
-const JSON_DOUBLE_SIZE: usize = 4;
-const JSON_BOOL_SIZE: usize = 1;
-const JSON_NULL_SIZE: usize = 0;
+pub const JSON_INT_SIZE: usize = 4;
+pub const JSON_DOUBLE_SIZE: usize = 4;
+pub const JSON_BOOL_SIZE: usize = 1;
+pub const JSON_NULL_SIZE: usize = 0;
 
-const MAX_I32: i64 = 4294967296;
+pub const MAX_I32: i64 = 4294967296;
 
 pub trait Bipf {
     fn to_bipf(&self) -> Result<Vec<u8>>;
@@ -181,21 +180,6 @@ pub fn decode(buf: &Vec<u8>) -> Result<Value> {
     decode_rec(buf, 0)
 }
 
-pub fn decode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsValue> {
-    let buf = cx.argument::<JsArrayBuffer>(0)?;
-    let buf = cx.borrow(&buf, |x| x.as_slice::<u8>());
-
-    let start = match cx.argument::<JsNumber>(1) {
-        Ok(i) => i.value(&mut cx) as usize,
-        Err(_) => 0,
-    };
-
-    match decode_rec_neon(&mut cx, buf, start) {
-        Ok(a) => Ok(a),
-        Err(_) => NeonResult::Err(neon::result::Throw),
-    }
-}
-
 pub fn decode_rec(buf: &Vec<u8>, start: usize) -> Result<Value> {
     let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start..]);
     let (tag, bytes) = match decoded {
@@ -209,23 +193,6 @@ pub fn decode_rec(buf: &Vec<u8>, start: usize) -> Result<Value> {
     decode_type(field_type, buf, start + bytes, len)
 }
 
-pub fn decode_rec_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-) -> Result<Handle<'a, JsValue>> {
-    let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start..]);
-    let (tag, bytes) = match decoded {
-        None => Err(Error::from(ErrorKind::InvalidInput)),
-        Some(v) => Result::Ok(v),
-    }?;
-
-    let field_type = tag & TAG_MASK;
-    let len = tag >> TAG_SIZE;
-
-    decode_type_neon(cx, field_type, buf, start + bytes, len)
-}
-
 pub fn decode_type(field_type: usize, buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     match field_type {
         STRING => decode_string(buf, start, len),
@@ -234,24 +201,6 @@ pub fn decode_type(field_type: usize, buf: &Vec<u8>, start: usize, len: usize) -
         DOUBLE => decode_double(buf, start),
         ARRAY => decode_array(buf, start, len),
         OBJECT => decode_object(buf, start, len),
-        _ => Err(Error::new(ErrorKind::Other, "invalid type")),
-    }
-}
-
-pub fn decode_type_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    field_type: usize,
-    buf: &[u8],
-    start: usize,
-    len: usize,
-) -> Result<Handle<'a, JsValue>> {
-    match field_type {
-        STRING => Ok(decode_string_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        BOOLNULL => Ok(decode_boolnull_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        INT => Ok(decode_integer_neon(cx, buf, start)?.upcast::<JsValue>()),
-        DOUBLE => Ok(decode_double_neon(cx, buf, start)?.upcast::<JsValue>()),
-        ARRAY => Ok(decode_array_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        OBJECT => Ok(decode_object_neon(cx, buf, start, len)?.upcast::<JsValue>()),
         _ => Err(Error::new(ErrorKind::Other, "invalid type")),
     }
 }
@@ -275,51 +224,10 @@ pub fn decode_boolnull(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value>
     }
 }
 
-pub fn decode_boolnull_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-    len: usize,
-) -> Result<Handle<'a, JsValue>> {
-    if len == 0 {
-        Ok(JsNull::new(cx).upcast::<JsValue>())
-    } else {
-        let s = buf[start];
-        if s > 2 {
-            Err(Error::new(ErrorKind::Other, "Invalid boolnull"))
-        } else {
-            if len > 1 {
-                Err(Error::new(
-                    ErrorKind::Other,
-                    "Invalid boolnull, len must be > 1",
-                ))
-            } else {
-                Ok(JsBoolean::new(cx, if s == 1 { true } else { false }).upcast())
-            }
-        }
-    }
-}
-
 pub fn decode_string(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     let raw_str = std::str::from_utf8(&buf[start..start + len]);
     match raw_str {
         std::result::Result::Ok(v) => Ok(Value::String(String::from(v))),
-        std::result::Result::Err(_) => Err(Error::new(
-            ErrorKind::Other,
-            "Could not decode utf-8 string",
-        )),
-    }
-}
-
-pub fn decode_string_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-    len: usize,
-) -> Result<Handle<'a, JsString>> {
-    let raw_str = std::str::from_utf8(&buf[start..start + len]);
-    match raw_str {
-        std::result::Result::Ok(v) => Ok(JsString::new(cx, v)),
         std::result::Result::Err(_) => Err(Error::new(
             ErrorKind::Other,
             "Could not decode utf-8 string",
@@ -334,33 +242,11 @@ pub fn decode_integer(buf: &Vec<u8>, start: usize) -> Result<Value> {
     Ok(serde_json::to_value(i32::from_le_bytes(bytes))?)
 }
 
-pub fn decode_integer_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-) -> Result<Handle<'a, JsNumber>> {
-    let bytes: [u8; 4] = buf[start..start + 4]
-        .try_into()
-        .expect("slice with incorrect length");
-    Ok(JsNumber::new(cx, i32::from_le_bytes(bytes)))
-}
-
 pub fn decode_double(buf: &Vec<u8>, start: usize) -> Result<Value> {
     let bytes: [u8; 8] = buf[start..start + 8]
         .try_into()
         .expect("slice with incorrect length");
     Ok(serde_json::to_value(f64::from_le_bytes(bytes))?)
-}
-
-pub fn decode_double_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-) -> Result<Handle<'a, JsNumber>> {
-    let bytes: [u8; 8] = buf[start..start + 8]
-        .try_into()
-        .expect("slice with incorrect length");
-    Ok(JsNumber::new(cx, f64::from_le_bytes(bytes)))
 }
 
 pub fn decode_array(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
@@ -385,41 +271,6 @@ pub fn decode_array(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     }
 
     Ok(Value::Array(vec))
-}
-
-pub fn decode_array_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-    len: usize,
-) -> Result<Handle<'a, JsArray>> {
-    let mut c = 0;
-    let mut vec: Vec<Handle<'a, JsValue>> = Vec::new();
-
-    while c < len {
-        let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
-        let (tag, bytes) = match decoded {
-            None => Result::Err(Error::from(ErrorKind::InvalidInput)),
-            Some(v) => Result::Ok(v),
-        }?;
-
-        c += bytes;
-
-        let field_type = tag & TAG_MASK;
-        let len = tag >> TAG_SIZE;
-
-        vec.push(decode_type_neon(cx, field_type, buf, start + c, len)?);
-
-        c += len;
-    }
-
-    let arr = JsArray::new(cx, vec.len() as u32);
-    let mut i = 0;
-    for x in vec {
-        arr.set(cx, i, x);
-        i += 1;
-    }
-    Ok(arr)
 }
 
 pub fn decode_object(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
@@ -456,44 +307,6 @@ pub fn decode_object(buf: &Vec<u8>, start: usize, len: usize) -> Result<Value> {
     }
 
     Ok(Value::Object(map))
-}
-
-pub fn decode_object_neon<'a>(
-    cx: &mut FunctionContext<'a>,
-    buf: &[u8],
-    start: usize,
-    len: usize,
-) -> Result<Handle<'a, JsObject>> {
-    let mut c = 0;
-    let obj = JsObject::new(&mut *cx);
-
-    while c < len {
-        let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
-        let (tag, bytes) = match decoded {
-            None => Result::Err(Error::from(ErrorKind::InvalidInput)),
-            Some(v) => Result::Ok(v),
-        }?;
-        c += bytes;
-        let len = tag >> TAG_SIZE;
-        let key = decode_string_neon(cx, buf, start + c, len)?;
-        c += len;
-
-        let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
-        let (tag, bytes) = match decoded {
-            None => Err(Error::from(ErrorKind::InvalidInput)),
-            Some(v) => Result::Ok(v),
-        }?;
-
-        let field_type = tag & TAG_MASK;
-        let len = tag >> TAG_SIZE;
-
-        c += bytes;
-        let value = decode_type_neon(cx, field_type, buf, start + c, len)?;
-        c += len;
-        obj.set(cx, key, value);
-    }
-
-    Ok(obj)
 }
 
 pub fn seek_key(bytes: &Vec<u8>, start: Option<usize>, target: String) -> Option<usize> {

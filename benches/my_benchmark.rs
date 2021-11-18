@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use bipf_rs::bipf::*;
+use bipf_rs::*;
 use serde_json::json;
 
 fn criterion_benchmark(c: &mut Criterion) {
