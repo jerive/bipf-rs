@@ -6,6 +6,7 @@ mod neon_impl;
 
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
+    cx.export_function("encode", neon_impl::encode_neon)?;
     cx.export_function("decode", neon_impl::decode_neon)?;
     Ok(())
 }

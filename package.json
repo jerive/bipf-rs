@@ -16,6 +16,8 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
-    "cargo-cp-artifact": "^0.1"
+    "cargo-cp-artifact": "^0.1",
+    "bipf": "1.5.2",
+    "tape": "5.3.2"
   }
 }

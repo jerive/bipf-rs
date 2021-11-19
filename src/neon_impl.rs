@@ -3,14 +3,242 @@ use integer_encoding::VarInt;
 use neon::prelude::*;
 use std::io::*;
 
+pub fn encode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsArrayBuffer> {
+    let val = cx.argument::<JsValue>(0)?;
+    match JType::new(val, &mut cx) {
+        Ok(val) => match val.encode(&mut cx) {
+            Ok(res) => {
+                // Todo write continuously
+                let mut buf = JsArrayBuffer::new(&mut cx, res.len() as u32)?;
+                let mut out = cx.borrow_mut(&mut buf, |x| x.as_mut_slice::<u8>());
+                out.write(&res[..]);
+
+                Ok(buf)
+            }
+            Err(_) => NeonResult::Err(neon::result::Throw),
+        },
+        Err(_) => NeonResult::Err(neon::result::Throw),
+    }
+}
+
+enum JType<'a> {
+    String {
+        v: Handle<'a, JsString>,
+        l: usize,
+    },
+    Buffer {
+        v: Vec<u8>,
+    },
+    Number {
+        v: f64,
+    },
+    Array {
+        v: Vec<JType<'a>>,
+        l: usize,
+    },
+    Object {
+        v: Vec<(Handle<'a, JsString>, JType<'a>)>,
+        l: usize,
+    },
+    BoolNull {
+        v: Option<bool>,
+        l: usize,
+    },
+}
+
+impl<'a> JType<'a> {
+    pub fn new(input: Handle<'a, JsValue>, cx: &mut FunctionContext<'a>) -> Result<JType<'a>> {
+        if input.is_a::<JsNull, _>(cx) {
+            Ok(JType::BoolNull {
+                v: None,
+                l: JSON_NULL_SIZE,
+            })
+        } else if input.is_a::<JsBoolean, _>(cx) {
+            let res = match input.downcast::<JsBoolean, _>(cx) {
+                Ok(b) => Ok(b.value(cx)),
+                _ => Err(Error::new(ErrorKind::Other, "")),
+            }?;
+            Ok(JType::BoolNull {
+                v: Some(res),
+                l: JSON_BOOL_SIZE,
+            })
+        } else if input.is_a::<JsString, _>(cx) {
+            let res = match input.downcast::<JsString, _>(cx) {
+                Ok(b) => Ok(b),
+                _ => Err(Error::new(ErrorKind::Other, "")),
+            }?;
+
+            Ok(JType::String {
+                v: res,
+                l: res.size(cx) as usize,
+            })
+        } else if input.is_a::<JsNumber, _>(cx) {
+            // TODO properly handle numbers
+            // https://medium.com/angular-in-depth/javascripts-number-type-8d59199db1b6#.9whwe88tz
+            Ok(JType::Number {
+                v: match input.downcast::<JsNumber, _>(cx) {
+                    Ok(x) => Ok(x.value(cx)),
+                    Err(_) => Err(Error::new(ErrorKind::Other, "")),
+                }?,
+            })
+        } else if input.is_a::<JsBuffer, _>(cx) {
+            match input.downcast::<JsBuffer, _>(cx) {
+                Ok(b) => Ok(JType::Buffer {
+                    v: cx.borrow(&b, |x| x.as_slice().to_vec()),
+                }),
+                Err(_) => Err(Error::new(ErrorKind::Other, "")),
+            }
+        } else if input.is_a::<JsArray, _>(cx) {
+            let v: Vec<JType> = match input.downcast::<JsArray, _>(cx) {
+                Ok(res) => match res.to_vec(cx) {
+                    Ok(vec) => vec.iter().map(|x| JType::new(*x, cx)).collect(),
+                    Err(_) => Err(Error::new(ErrorKind::Other, "")),
+                },
+                Err(_) => Err(Error::new(ErrorKind::Other, "")),
+            }?;
+
+            let mut l = 0;
+            for x in &v {
+                let base_len = JType::length(&x);
+                l += base_len + (base_len << TAG_SIZE).required_space()
+            }
+
+            Ok(JType::Array { v, l })
+        } else if input.is_a::<JsObject, _>(cx) {
+            let res = match input.downcast::<JsObject, _>(cx) {
+                Ok(b) => Ok(b),
+                _ => Err(Error::new(ErrorKind::Other, "")),
+            }?;
+
+            let v: Vec<(Handle<'a, JsString>, JType<'a>)> =
+                match res.get_own_property_names(cx).unwrap().to_vec(cx) {
+                    Ok(vec) => vec
+                        .iter()
+                        .map(|x| match x.downcast::<JsString, _>(cx) {
+                            Ok(s) => {
+                                let inner = JType::new(
+                                    match res.get(cx, s) {
+                                        Ok(s) => Ok(s),
+                                        _ => Err(Error::new(ErrorKind::Other, "")),
+                                    }?,
+                                    cx,
+                                )?;
+
+                                Ok((s, inner))
+                            }
+                            _ => Err(Error::new(ErrorKind::Other, "")),
+                        })
+                        .collect(),
+                    Err(e) => Err(Error::new(ErrorKind::Other, "")),
+                }?;
+
+            let mut l = 0;
+            for (k, v) in &v {
+                let key_len = k.size(cx) as usize;
+                let val_length = JType::length(&v);
+                l += key_len
+                    + (key_len << TAG_SIZE).required_space()
+                    + val_length
+                    + (val_length << TAG_SIZE).required_space()
+            }
+
+            Ok(JType::Object { v, l })
+        } else {
+            Err(Error::new(ErrorKind::Other, "Unknown type"))
+        }
+    }
+
+    pub fn encode_rec(
+        &self,
+        cx: &mut FunctionContext<'a>,
+        buf: &mut Vec<u8>,
+        start: usize,
+    ) -> Result<usize> {
+        let length_varint = self.length() << TAG_SIZE | self.get_type();
+        let varint = length_varint.encode_var_vec();
+        let varint_length = varint.len();
+        buf.write(&varint)?;
+
+        Ok(varint_length
+            + (match self {
+                JType::Buffer { v } => buf.write(v),
+                JType::String { v, l: _ } => buf.write(v.value(cx).as_bytes()),
+                // JType::Int { v } => buf.write(&v.to_le_bytes()),
+                JType::Number { v } => buf.write(&v.to_le_bytes()),
+                // JType::Double { v: Right(float) } => buf.write(&float.to_le_bytes()),
+                JType::BoolNull { v, l: _ } => match v {
+                    None => Ok(JSON_NULL_SIZE),
+                    Some(b) => buf.write(&[if *b { 1 } else { 0 }]),
+                },
+                JType::Array { v, l: _ } => {
+                    let mut p = start;
+                    for i in v {
+                        p += i.encode_rec(cx, buf, p)?
+                    }
+                    Ok(p - start)
+                }
+                JType::Object { v, l: _ } => {
+                    let mut p = start;
+                    for (k, u) in v {
+                        p += JType::String {
+                            v: *k,
+                            l: k.size(cx) as usize,
+                        }
+                        .encode_rec(cx, buf, p)?;
+                        p += u.encode_rec(cx, buf, p)?;
+                    }
+                    Ok(p - start)
+                }
+            })?)
+    }
+
+    pub fn encode(&self, cx: &mut FunctionContext<'a>) -> Result<Vec<u8>> {
+        let mut buf: Vec<u8> = Vec::with_capacity(self.length());
+        self.encode_rec(cx, &mut buf, 0)?;
+
+        buf.flush()?;
+
+        Ok(buf)
+    }
+
+    pub fn length(&self) -> usize {
+        match self {
+            JType::Buffer { v } => v.len(),
+            JType::String { v: _, l } => *l,
+            // JType::Int { v: _ } => JSON_INT_SIZE,
+            // JType::Double { v: _ } => JSON_DOUBLE_SIZE,
+            JType::Number { v: _ } => JSON_DOUBLE_SIZE,
+            JType::Array { v: _, l } => *l,
+            JType::Object { v: _, l } => *l,
+            JType::BoolNull { v: _, l } => *l,
+        }
+    }
+
+    pub fn get_type(&self) -> usize {
+        match self {
+            JType::Buffer { v: _ } => BUFFER,
+            JType::String { v: _, l: _ } => STRING,
+            // JType::Int { v: _ } => INT,
+            // JType::Double { v: _ } => DOUBLE,
+            JType::Number { v: _ } => DOUBLE,
+            JType::Array { v: _, l: _ } => ARRAY,
+            JType::Object { v: _, l: _ } => OBJECT,
+            JType::BoolNull { v: _, l: _ } => BOOLNULL,
+        }
+    }
+}
+
 pub fn decode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsValue> {
     let buf = cx.argument::<JsArrayBuffer>(0)?;
     let buf = cx.borrow(&buf, |x| x.as_slice::<u8>());
 
-    let start = match cx.argument::<JsNumber>(1) {
-        Ok(i) => i.value(&mut cx) as usize,
-        Err(_) => 0,
-    };
+    let start = match cx.argument_opt(1) {
+        Some(i) => match i.downcast::<JsNumber, _>(&mut cx) {
+            Ok(i) => Ok(i.value(&mut cx) as usize),
+            Err(_) => NeonResult::Err(neon::result::Throw),
+        },
+        None => Ok(0),
+    }?;
 
     match decode_rec_neon(&mut cx, buf, start) {
         Ok(a) => Ok(a),

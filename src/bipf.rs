@@ -5,7 +5,7 @@ use serde_json::Value;
 use std::io::*;
 
 pub const STRING: usize = 0; // 000
-pub const BUFFER: u64 = 1; // 001
+pub const BUFFER: usize = 1; // 001
 pub const INT: usize = 2; // 010 //32bit int
 pub const DOUBLE: usize = 3; // 011 //use next 8 bytes to encode 64bit float
 pub const ARRAY: usize = 4; // 100
