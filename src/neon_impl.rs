@@ -3,13 +3,13 @@ use integer_encoding::VarInt;
 use neon::prelude::*;
 use std::io::*;
 
-pub fn encode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsArrayBuffer> {
+pub fn encode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsBuffer> {
     let val = cx.argument::<JsValue>(0)?;
     match JType::new(val, &mut cx) {
         Ok(val) => match val.encode(&mut cx) {
             Ok(res) => {
                 // Todo write continuously
-                let mut buf = JsArrayBuffer::new(&mut cx, res.len() as u32)?;
+                let mut buf = JsBuffer::new(&mut cx, res.len() as u32)?;
                 let mut out = cx.borrow_mut(&mut buf, |x| x.as_mut_slice::<u8>());
                 out.write(&res[..]);
 
@@ -29,7 +29,10 @@ enum JType<'a> {
     Buffer {
         v: Vec<u8>,
     },
-    Number {
+    Int {
+        v: i32,
+    },
+    Double {
         v: f64,
     },
     Array {
@@ -73,14 +76,20 @@ impl<'a> JType<'a> {
                 l: res.size(cx) as usize,
             })
         } else if input.is_a::<JsNumber, _>(cx) {
-            // TODO properly handle numbers
-            // https://medium.com/angular-in-depth/javascripts-number-type-8d59199db1b6#.9whwe88tz
-            Ok(JType::Number {
-                v: match input.downcast::<JsNumber, _>(cx) {
-                    Ok(x) => Ok(x.value(cx)),
-                    Err(_) => Err(Error::new(ErrorKind::Other, "")),
-                }?,
-            })
+            Ok(match input.downcast::<JsNumber, _>(cx) {
+                Ok(x) => Ok({
+                    let v = x.value(cx);
+                    // TODO properly handle numbers
+                    // https://medium.com/angular-in-depth/javascripts-number-type-8d59199db1b6#.9whwe88tz
+                    // This will fail for floats < MAX_I32
+                    if v.abs() < MAX_I32 as f64 {
+                        JType::Int { v: v as i32 }
+                    } else {
+                        JType::Double { v }
+                    }
+                }),
+                Err(_) => Err(Error::new(ErrorKind::Other, "")),
+            }?)
         } else if input.is_a::<JsBuffer, _>(cx) {
             match input.downcast::<JsBuffer, _>(cx) {
                 Ok(b) => Ok(JType::Buffer {
@@ -163,9 +172,9 @@ impl<'a> JType<'a> {
             + (match self {
                 JType::Buffer { v } => buf.write(v),
                 JType::String { v, l: _ } => buf.write(v.value(cx).as_bytes()),
-                // JType::Int { v } => buf.write(&v.to_le_bytes()),
-                JType::Number { v } => buf.write(&v.to_le_bytes()),
-                // JType::Double { v: Right(float) } => buf.write(&float.to_le_bytes()),
+                JType::Int { v } => buf.write(&v.to_le_bytes()),
+                // JType::Number { v } => buf.write(&v.to_le_bytes()),
+                JType::Double { v } => buf.write(&v.to_le_bytes()),
                 JType::BoolNull { v, l: _ } => match v {
                     None => Ok(JSON_NULL_SIZE),
                     Some(b) => buf.write(&[if *b { 1 } else { 0 }]),
@@ -205,9 +214,9 @@ impl<'a> JType<'a> {
         match self {
             JType::Buffer { v } => v.len(),
             JType::String { v: _, l } => *l,
-            // JType::Int { v: _ } => JSON_INT_SIZE,
-            // JType::Double { v: _ } => JSON_DOUBLE_SIZE,
-            JType::Number { v: _ } => JSON_DOUBLE_SIZE,
+            JType::Int { v: _ } => JSON_INT_SIZE,
+            JType::Double { v: _ } => JSON_DOUBLE_SIZE,
+            // JType::Number { v: _ } => JSON_DOUBLE_SIZE,
             JType::Array { v: _, l } => *l,
             JType::Object { v: _, l } => *l,
             JType::BoolNull { v: _, l } => *l,
@@ -218,9 +227,8 @@ impl<'a> JType<'a> {
         match self {
             JType::Buffer { v: _ } => BUFFER,
             JType::String { v: _, l: _ } => STRING,
-            // JType::Int { v: _ } => INT,
-            // JType::Double { v: _ } => DOUBLE,
-            JType::Number { v: _ } => DOUBLE,
+            JType::Int { v: _ } => INT,
+            JType::Double { v: _ } => DOUBLE,
             JType::Array { v: _, l: _ } => ARRAY,
             JType::Object { v: _, l: _ } => OBJECT,
             JType::BoolNull { v: _, l: _ } => BOOLNULL,
@@ -229,7 +237,7 @@ impl<'a> JType<'a> {
 }
 
 pub fn decode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsValue> {
-    let buf = cx.argument::<JsArrayBuffer>(0)?;
+    let buf = cx.argument::<JsBuffer>(0)?;
     let buf = cx.borrow(&buf, |x| x.as_slice::<u8>());
 
     let start = match cx.argument_opt(1) {
