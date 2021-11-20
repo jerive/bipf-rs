@@ -81,8 +81,9 @@ impl<'a> JType<'a> {
                     let v = x.value(cx);
                     // TODO properly handle numbers
                     // https://medium.com/angular-in-depth/javascripts-number-type-8d59199db1b6#.9whwe88tz
-                    // This will fail for floats < MAX_I32
-                    if v.abs() < MAX_I32 as f64 {
+                    // https://stackoverflow.com/questions/48500261/check-if-a-float-can-be-converted-to-integer-without-loss/48500414
+                    // Also cf https://github.com/ssbc/bipf/issues/2
+                    if v.abs() < MAX_I32 as f64 && v.fract() == 0.0 {
                         JType::Int { v: v as i32 }
                     } else {
                         JType::Double { v }
@@ -138,7 +139,7 @@ impl<'a> JType<'a> {
                             _ => Err(Error::new(ErrorKind::Other, "")),
                         })
                         .collect(),
-                    Err(e) => Err(Error::new(ErrorKind::Other, "")),
+                    Err(_) => Err(Error::new(ErrorKind::Other, "")),
                 }?;
 
             let mut l = 0;
@@ -173,7 +174,6 @@ impl<'a> JType<'a> {
                 JType::Buffer { v } => buf.write(v),
                 JType::String { v, l: _ } => buf.write(v.value(cx).as_bytes()),
                 JType::Int { v } => buf.write(&v.to_le_bytes()),
-                // JType::Number { v } => buf.write(&v.to_le_bytes()),
                 JType::Double { v } => buf.write(&v.to_le_bytes()),
                 JType::BoolNull { v, l: _ } => match v {
                     None => Ok(JSON_NULL_SIZE),

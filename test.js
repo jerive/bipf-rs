@@ -6,6 +6,7 @@ const tape = require('tape')
 function testEncodeDecode(value) {
     tape('encode & decode: ' + JSON.stringify(value), (t) => {
         const encoded = bipf.encode(value)
+        console.log(encoded)
         // const buf = Buffer.alloc(bipf.encodingLength(value))
         const buf = Buffer.alloc(encoded.length)
         const len = bipfReference.encode(value, buf, 0)
@@ -46,4 +47,4 @@ testEncodeDecode('hello')
 testEncodeDecode({ foo: true })
 testEncodeDecode([-1, { foo: true }, Buffer.from('deadbeef', 'hex')])
 testEncodeDecode(pkg)
-// testEncodeDecode(1.0992)
+testEncodeDecode(0.1)
