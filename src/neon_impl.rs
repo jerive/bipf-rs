@@ -277,6 +277,7 @@ pub fn decode_type_neon<'a>(
         DOUBLE => Ok(decode_double_neon(cx, buf, start)?.upcast::<JsValue>()),
         ARRAY => Ok(decode_array_neon(cx, buf, start, len)?.upcast::<JsValue>()),
         OBJECT => Ok(decode_object_neon(cx, buf, start, len)?.upcast::<JsValue>()),
+        BUFFER => Ok(decode_buffer_neon(cx, buf, start, len)?.upcast::<JsValue>()),
         _ => Err(Error::new(ErrorKind::Other, "invalid type")),
     }
 }
@@ -320,6 +321,22 @@ pub fn decode_string_neon<'a>(
             "Could not decode utf-8 string",
         )),
     }
+}
+
+pub fn decode_buffer_neon<'a>(
+    cx: &mut FunctionContext<'a>,
+    buf: &[u8],
+    start: usize,
+    len: usize,
+) -> Result<Handle<'a, JsBuffer>> {
+    let mut res = match JsBuffer::new(cx, len as u32) {
+        Ok(b) => Ok(b),
+        Err(_) => Err(Error::from(ErrorKind::InvalidInput)),
+    }?;
+
+    let mut out = cx.borrow_mut(&mut res, |x| x.as_mut_slice::<u8>());
+    out.write(&buf[start..start + len])?;
+    Ok(res)
 }
 
 pub fn decode_integer_neon<'a>(

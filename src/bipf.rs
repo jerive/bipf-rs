@@ -17,7 +17,7 @@ pub const TAG_SIZE: usize = 3;
 pub const TAG_MASK: usize = 7;
 
 pub const JSON_INT_SIZE: usize = 4;
-pub const JSON_DOUBLE_SIZE: usize = 4;
+pub const JSON_DOUBLE_SIZE: usize = 8;
 pub const JSON_BOOL_SIZE: usize = 1;
 pub const JSON_NULL_SIZE: usize = 0;
 
