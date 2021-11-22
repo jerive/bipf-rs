@@ -3,7 +3,92 @@ use integer_encoding::VarInt;
 use neon::prelude::*;
 use std::io::*;
 
-pub fn encode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsBuffer> {
+const MAX_I32_F64: f64 = MAX_I32 as f64;
+
+pub fn encoding_length<'a>(mut cx: FunctionContext<'a>) -> JsResult<JsNumber> {
+    let arg = cx.argument::<JsValue>(0)?;
+    match encoding_length_rec(&mut cx, arg) {
+        Ok(l) => Ok(cx.number(l as f64)),
+        Err(_) => NeonResult::Err(neon::result::Throw),
+    }
+}
+
+pub fn encoding_length_rec<'a>(
+    cx: &mut FunctionContext<'a>,
+    input: Handle<'a, JsValue>,
+) -> Result<usize> {
+    let len = if input.is_a::<JsNull, _>(cx) {
+        Ok(JSON_NULL_SIZE)
+    } else if input.is_a::<JsBoolean, _>(cx) {
+        Ok(JSON_BOOL_SIZE)
+    } else if input.is_a::<JsString, _>(cx) {
+        let res = match input.downcast::<JsString, _>(cx) {
+            Ok(b) => Ok(b),
+            _ => Err(Error::new(ErrorKind::Other, "")),
+        }?;
+
+        Ok(res.size(cx) as usize)
+    } else if input.is_a::<JsNumber, _>(cx) {
+        match input.downcast::<JsNumber, _>(cx) {
+            Ok(x) => Ok({
+                let v = x.value(cx);
+                if v.abs() < MAX_I32_F64 && v.fract() == 0.0 {
+                    JSON_INT_SIZE
+                } else {
+                    JSON_DOUBLE_SIZE
+                }
+            }),
+            Err(_) => Err(Error::new(ErrorKind::Other, "")),
+        }
+    } else if input.is_a::<JsBuffer, _>(cx) {
+        match input.downcast::<JsBuffer, _>(cx) {
+            Ok(b) => Ok(cx.borrow(&b, |x| x.len())),
+            Err(_) => Err(Error::new(ErrorKind::Other, "")),
+        }
+    } else if input.is_a::<JsArray, _>(cx) {
+        match input.downcast::<JsArray, _>(cx) {
+            Ok(res) => match res.to_vec(cx) {
+                Ok(vec) => {
+                    let mut l = 0;
+                    for x in vec {
+                        l += encoding_length_rec(cx, x)?
+                    }
+
+                    Ok(l)
+                }
+                Err(_) => Err(Error::new(ErrorKind::Other, "")),
+            },
+            Err(_) => Err(Error::new(ErrorKind::Other, "")),
+        }
+    } else if input.is_a::<JsObject, _>(cx) {
+        let res = match input.downcast::<JsObject, _>(cx) {
+            Ok(b) => Ok(b),
+            _ => Err(Error::new(ErrorKind::Other, "")),
+        }?;
+        match res.get_own_property_names(cx).unwrap().to_vec(cx) {
+            Ok(vec) => {
+                let mut l = 0;
+                for jskey in vec {
+                    let key_len = encoding_length_rec(cx, jskey)?;
+                    let obj = match res.get(cx, jskey) {
+                        Ok(l) => Ok(l),
+                        Err(_) => Err(Error::new(ErrorKind::Other, "")),
+                    }?;
+                    let val_length = encoding_length_rec(cx, obj)?;
+                    l += key_len + val_length;
+                }
+                Ok(l)
+            }
+            Err(_) => Err(Error::new(ErrorKind::Other, "")),
+        }
+    } else {
+        Err(Error::new(ErrorKind::Other, "Unknown type"))
+    }?;
+
+    Ok(len + (len << TAG_SIZE).required_space())
+}
+
+pub fn encode<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsBuffer> {
     let val = cx.argument::<JsValue>(0)?;
     match JType::new(val, &mut cx) {
         Ok(val) => match val.encode(&mut cx) {
@@ -83,7 +168,7 @@ impl<'a> JType<'a> {
                     // https://medium.com/angular-in-depth/javascripts-number-type-8d59199db1b6#.9whwe88tz
                     // https://stackoverflow.com/questions/48500261/check-if-a-float-can-be-converted-to-integer-without-loss/48500414
                     // Also cf https://github.com/ssbc/bipf/issues/2
-                    if v.abs() < MAX_I32 as f64 && v.fract() == 0.0 {
+                    if v.abs() < MAX_I32_F64 && v.fract() == 0.0 {
                         JType::Int { v: v as i32 }
                     } else {
                         JType::Double { v }
@@ -236,7 +321,7 @@ impl<'a> JType<'a> {
     }
 }
 
-pub fn decode_neon<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsValue> {
+pub fn decode<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsValue> {
     let buf = cx.argument::<JsBuffer>(0)?;
     let buf = cx.borrow(&buf, |x| x.as_slice::<u8>());
 

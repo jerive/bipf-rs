@@ -1,14 +1,14 @@
-let bipf = require('./index.node');
+let bipf = require('./../index.node');
 let bipfReference = require('bipf');
-let pkg = require('./package.json');
+let pkg = require('../package.json');
 const tape = require('tape')
 
 function testEncodeDecode(value) {
     tape('encode & decode: ' + JSON.stringify(value), (t) => {
         const encoded = bipf.encode(value)
-        console.log(encoded)
-        // const buf = Buffer.alloc(bipf.encodingLength(value))
-        const buf = Buffer.alloc(encoded.length)
+        t.equals(bipf.encodingLength(value), bipfReference.encodingLength(value), "Encoding length must be equal")
+        const buf = Buffer.alloc(bipfReference.encodingLength(value))
+        // const buf = Buffer.alloc(encoded.length)
         const len = bipfReference.encode(value, buf, 0)
         t.deepEqual(buf, encoded, "reference and neon must be binary perfect");
         // console.log('encoded:', buf.slice(0, len))

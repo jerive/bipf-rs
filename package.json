@@ -11,7 +11,7 @@
     "build-debug": "npm run build --",
     "build-release": "npm run build -- --release",
     "install": "npm run build-release",
-    "test": "node test.js"
+    "test": "node test/index.js"
   },
   "author": "",
   "license": "ISC",
