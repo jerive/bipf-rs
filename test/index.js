@@ -48,3 +48,26 @@ testEncodeDecode({ foo: true })
 testEncodeDecode([-1, { foo: true }, Buffer.from('deadbeef', 'hex')])
 testEncodeDecode(pkg)
 testEncodeDecode(0.1)
+
+tape('seekKey() on an object', (t) => {
+  const objEncoded = bipfReference.allocAndEncode({ x: 10, y: 20 })
+  const pointer = bipf.seekKey(objEncoded, 0, Buffer.from('y', 'utf-8'))
+  t.equals(pointer, 10)
+  const twenty = bipf.decode(objEncoded, pointer)
+  t.equals(twenty, 20)
+  t.end()
+})
+
+tape('seekKey() with a negative start on an object', (t) => {
+  const objEncoded = bipfReference.allocAndEncode({ x: 10, y: 20 })
+  const pointer = bipf.seekKey(objEncoded, -1, Buffer.from('y', 'utf-8'))
+  t.equals(pointer, -1)
+  t.end()
+})
+
+tape('seekKey() on an array', (t) => {
+  const objEncoded = bipfReference.allocAndEncode([10, 20])
+  const pointer = bipf.seekKey(objEncoded, 0, Buffer.from('y', 'utf-8'))
+  t.equals(pointer, -1)
+  t.end()
+})

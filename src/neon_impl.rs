@@ -1,6 +1,7 @@
 use crate::bipf::*;
 use integer_encoding::VarInt;
 use neon::prelude::*;
+use neon::result::*;
 use std::io::*;
 
 const MAX_I32_F64: f64 = MAX_I32 as f64;
@@ -103,6 +104,75 @@ pub fn encode<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsBuffer> {
             Err(_) => NeonResult::Err(neon::result::Throw),
         },
         Err(_) => NeonResult::Err(neon::result::Throw),
+    }
+}
+
+pub fn seek_key<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsNumber> {
+    let buf = cx.argument::<JsBuffer>(0)?;
+    let bytes = cx.borrow(&buf, |x| x.as_slice());
+    let start = cx.argument::<JsNumber>(1)?.value(&mut cx) as isize;
+    let start = if start == -1 { None } else { Some(start as usize) };
+    let tmp_string: String;
+    let tmp_buf: Handle<JsBuffer>;
+    let target_anytype = cx.argument::<JsValue>(2)?;
+    let target: &[u8] = match target_anytype.downcast::<JsBuffer, _>(&mut cx) {
+        Ok(buf) => {
+            tmp_buf = buf;
+            cx.borrow(&tmp_buf, |x| x.as_slice::<u8>())
+        },
+        Err(_) => {
+            tmp_string = match target_anytype.downcast::<JsString, _>(&mut cx) {
+                Ok(e) => Ok(e.value(&mut cx)),
+                Err(_) => NeonResult::Err(neon::result::Throw)
+            }?;
+            tmp_string.as_bytes()
+        }
+    };
+
+    Ok(cx.number(match seek_key_inner(bytes, start, &target) {
+        None => -1 as f64,
+        Some(v) => v as f64
+    }))
+}
+
+pub fn seek_key_inner<'a>(bytes: &[u8], start: Option<usize>, target: &[u8]) -> Option<usize> {
+    match start {
+        None => None,
+        Some(start) => {
+            let decoded: (usize, usize) = VarInt::decode_var(&bytes[start..])?;
+            let tag = decoded.0;
+            let ty = tag & TAG_MASK;
+
+            if ty != OBJECT {
+                None
+            } else {
+                let mut c = decoded.1;
+                let len = tag >> TAG_SIZE;
+                let target_length = target.len();
+                let target_buf = target;
+                while c < len {
+                    let key_tag: (usize, usize) = VarInt::decode_var(&bytes[start + c..])?;
+                    c += key_tag.1;
+                    let key_len = key_tag.0 >> TAG_SIZE;
+                    let key_type = key_tag.0 & TAG_MASK;
+
+                    if key_type == STRING && target_length == key_len {
+                        if target_buf.eq(&bytes[start + c..start + c + target_length]) {
+                            let next_start = start + c + key_len;
+                            return Some(next_start);
+                        }
+                    }
+
+                    c += key_len;
+                    let value_tag: (usize, usize) = VarInt::decode_var(&bytes[start + c..])?;
+                    c += value_tag.1;
+                    let value_len = value_tag.0 >> TAG_SIZE;
+                    c += value_len;
+                }
+
+                None
+            }
+        }
     }
 }
 

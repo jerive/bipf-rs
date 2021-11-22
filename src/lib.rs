@@ -9,6 +9,7 @@ fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("encode", neon_impl::encode)?;
     cx.export_function("decode", neon_impl::decode)?;
     cx.export_function("encodingLength", neon_impl::encoding_length)?;
+    cx.export_function("seekKey", neon_impl::seek_key)?;
     Ok(())
 }
 
