@@ -1,7 +1,6 @@
 use crate::bipf::*;
 use integer_encoding::VarInt;
 use neon::prelude::*;
-use neon::result::*;
 use std::io::*;
 
 const MAX_I32_F64: f64 = MAX_I32 as f64;
@@ -95,7 +94,7 @@ pub fn encode<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsBuffer> {
         Ok(val) => match val.encode(&mut cx) {
             Ok(res) => {
                 // Todo write continuously
-                let mut buf = JsBuffer::new(&mut cx, res.len() as u32)?;
+                let mut buf = unsafe { JsBuffer::uninitialized(&mut cx, res.len() as u32) }?;
                 let mut out = cx.borrow_mut(&mut buf, |x| x.as_mut_slice::<u8>());
                 out.write(&res[..]);
 
@@ -111,31 +110,32 @@ pub fn seek_key<'a>(mut cx: FunctionContext<'a>) -> JsResult<'a, JsNumber> {
     let buf = cx.argument::<JsBuffer>(0)?;
     let bytes = cx.borrow(&buf, |x| x.as_slice());
     let start = cx.argument::<JsNumber>(1)?.value(&mut cx) as isize;
-    let start = if start == -1 { None } else { Some(start as usize) };
+    let start = if start == -1 {
+        None
+    } else {
+        Some(start as usize)
+    };
     let tmp_string: String;
     let tmp_buf: Handle<JsBuffer>;
-    let target_anytype = cx.argument::<JsValue>(2)?;
-    let target: &[u8] = match target_anytype.downcast::<JsBuffer, _>(&mut cx) {
-        Ok(buf) => {
-            tmp_buf = buf;
-            cx.borrow(&tmp_buf, |x| x.as_slice::<u8>())
-        },
-        Err(_) => {
-            tmp_string = match target_anytype.downcast::<JsString, _>(&mut cx) {
-                Ok(e) => Ok(e.value(&mut cx)),
-                Err(_) => NeonResult::Err(neon::result::Throw)
-            }?;
-            tmp_string.as_bytes()
-        }
+    let target = cx.argument::<JsValue>(2)?;
+    let target: &[u8] = if target.is_a::<JsBuffer, _>(&mut cx) {
+        tmp_buf = target.downcast_or_throw::<JsBuffer, _>(&mut cx)?;
+        cx.borrow(&tmp_buf, |x| x.as_slice::<u8>())
+    } else if target.is_a::<JsString, _>(&mut cx) {
+        let f = target.downcast_or_throw::<JsString, _>(&mut cx)?;
+        tmp_string = f.value(&mut cx);
+        tmp_string.as_bytes()
+    } else {
+        return cx.throw_error("expected 3rd argument to `seek_key` to be a string or buffer");
     };
 
-    Ok(cx.number(match seek_key_inner(bytes, start, &target) {
+    Ok(cx.number(match seek_key_internal(bytes, start, &target) {
         None => -1 as f64,
-        Some(v) => v as f64
+        Some(v) => v as f64,
     }))
 }
 
-pub fn seek_key_inner<'a>(bytes: &[u8], start: Option<usize>, target: &[u8]) -> Option<usize> {
+fn seek_key_internal<'a>(bytes: &[u8], start: Option<usize>, target: &[u8]) -> Option<usize> {
     match start {
         None => None,
         Some(start) => {
@@ -157,7 +157,7 @@ pub fn seek_key_inner<'a>(bytes: &[u8], start: Option<usize>, target: &[u8]) -> 
                     let key_type = key_tag.0 & TAG_MASK;
 
                     if key_type == STRING && target_length == key_len {
-                        if target_buf.eq(&bytes[start + c..start + c + target_length]) {
+                        if target_buf == &bytes[start + c..start + c + target_length] {
                             let next_start = start + c + key_len;
                             return Some(next_start);
                         }
@@ -371,7 +371,6 @@ impl<'a> JType<'a> {
             JType::String { v: _, l } => *l,
             JType::Int { v: _ } => JSON_INT_SIZE,
             JType::Double { v: _ } => JSON_DOUBLE_SIZE,
-            // JType::Number { v: _ } => JSON_DOUBLE_SIZE,
             JType::Array { v: _, l } => *l,
             JType::Object { v: _, l } => *l,
             JType::BoolNull { v: _, l } => *l,
@@ -416,8 +415,8 @@ pub fn decode_rec_neon<'a>(
 ) -> Result<Handle<'a, JsValue>> {
     let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start..]);
     let (tag, bytes) = match decoded {
+        Some(v) => Ok(v),
         None => Err(Error::from(ErrorKind::InvalidInput)),
-        Some(v) => Result::Ok(v),
     }?;
 
     let field_type = tag & TAG_MASK;
@@ -434,13 +433,13 @@ pub fn decode_type_neon<'a>(
     len: usize,
 ) -> Result<Handle<'a, JsValue>> {
     match field_type {
-        STRING => Ok(decode_string_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        BOOLNULL => Ok(decode_boolnull_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        INT => Ok(decode_integer_neon(cx, buf, start)?.upcast::<JsValue>()),
-        DOUBLE => Ok(decode_double_neon(cx, buf, start)?.upcast::<JsValue>()),
-        ARRAY => Ok(decode_array_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        OBJECT => Ok(decode_object_neon(cx, buf, start, len)?.upcast::<JsValue>()),
-        BUFFER => Ok(decode_buffer_neon(cx, buf, start, len)?.upcast::<JsValue>()),
+        STRING => Ok(decode_string_neon(cx, buf, start, len)?),
+        BOOLNULL => Ok(decode_boolnull_neon(cx, buf, start, len)?),
+        INT => Ok(decode_integer_neon(cx, buf, start)?),
+        DOUBLE => Ok(decode_double_neon(cx, buf, start)?),
+        ARRAY => Ok(decode_array_neon(cx, buf, start, len)?),
+        OBJECT => Ok(decode_object_neon(cx, buf, start, len)?),
+        BUFFER => Ok(decode_buffer_neon(cx, buf, start, len)?),
         _ => Err(Error::new(ErrorKind::Other, "invalid type")),
     }
 }
@@ -452,7 +451,7 @@ pub fn decode_boolnull_neon<'a>(
     len: usize,
 ) -> Result<Handle<'a, JsValue>> {
     if len == 0 {
-        Ok(JsNull::new(cx).upcast::<JsValue>())
+        Ok(cx.null().upcast())
     } else {
         let s = buf[start];
         if s > 2 {
@@ -464,7 +463,7 @@ pub fn decode_boolnull_neon<'a>(
                     "Invalid boolnull, len must be > 1",
                 ))
             } else {
-                Ok(JsBoolean::new(cx, if s == 1 { true } else { false }).upcast())
+                Ok(cx.boolean(if s == 1 { true } else { false }).upcast())
             }
         }
     }
@@ -475,10 +474,10 @@ pub fn decode_string_neon<'a>(
     buf: &[u8],
     start: usize,
     len: usize,
-) -> Result<Handle<'a, JsString>> {
+) -> Result<Handle<'a, JsValue>> {
     let raw_str = std::str::from_utf8(&buf[start..start + len]);
     match raw_str {
-        std::result::Result::Ok(v) => Ok(JsString::new(cx, v)),
+        std::result::Result::Ok(v) => Ok(cx.string(v).upcast()),
         std::result::Result::Err(_) => Err(Error::new(
             ErrorKind::Other,
             "Could not decode utf-8 string",
@@ -491,37 +490,37 @@ pub fn decode_buffer_neon<'a>(
     buf: &[u8],
     start: usize,
     len: usize,
-) -> Result<Handle<'a, JsBuffer>> {
-    let mut res = match JsBuffer::new(cx, len as u32) {
+) -> Result<Handle<'a, JsValue>> {
+    let mut res = match cx.buffer(len as u32) {
         Ok(b) => Ok(b),
         Err(_) => Err(Error::from(ErrorKind::InvalidInput)),
     }?;
 
     let mut out = cx.borrow_mut(&mut res, |x| x.as_mut_slice::<u8>());
     out.write(&buf[start..start + len])?;
-    Ok(res)
+    Ok(res.upcast())
 }
 
 pub fn decode_integer_neon<'a>(
     cx: &mut FunctionContext<'a>,
     buf: &[u8],
     start: usize,
-) -> Result<Handle<'a, JsNumber>> {
+) -> Result<Handle<'a, JsValue>> {
     let bytes: [u8; 4] = buf[start..start + 4]
         .try_into()
         .expect("slice with incorrect length");
-    Ok(JsNumber::new(cx, i32::from_le_bytes(bytes)))
+    Ok(cx.number(i32::from_le_bytes(bytes)).upcast())
 }
 
 pub fn decode_double_neon<'a>(
     cx: &mut FunctionContext<'a>,
     buf: &[u8],
     start: usize,
-) -> Result<Handle<'a, JsNumber>> {
+) -> Result<Handle<'a, JsValue>> {
     let bytes: [u8; 8] = buf[start..start + 8]
         .try_into()
         .expect("slice with incorrect length");
-    Ok(JsNumber::new(cx, f64::from_le_bytes(bytes)))
+    Ok(cx.number(f64::from_le_bytes(bytes)).upcast())
 }
 
 pub fn decode_array_neon<'a>(
@@ -529,15 +528,15 @@ pub fn decode_array_neon<'a>(
     buf: &[u8],
     start: usize,
     len: usize,
-) -> Result<Handle<'a, JsArray>> {
+) -> Result<Handle<'a, JsValue>> {
     let mut c = 0;
     let mut vec: Vec<Handle<'a, JsValue>> = Vec::new();
 
     while c < len {
         let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
         let (tag, bytes) = match decoded {
-            None => Result::Err(Error::from(ErrorKind::InvalidInput)),
             Some(v) => Result::Ok(v),
+            None => Result::Err(Error::from(ErrorKind::InvalidInput)),
         }?;
 
         c += bytes;
@@ -550,13 +549,13 @@ pub fn decode_array_neon<'a>(
         c += len;
     }
 
-    let arr = JsArray::new(cx, vec.len() as u32);
+    let arr = cx.empty_array();
     let mut i = 0;
     for x in vec {
         arr.set(cx, i, x);
         i += 1;
     }
-    Ok(arr)
+    Ok(arr.upcast())
 }
 
 pub fn decode_object_neon<'a>(
@@ -564,15 +563,15 @@ pub fn decode_object_neon<'a>(
     buf: &[u8],
     start: usize,
     len: usize,
-) -> Result<Handle<'a, JsObject>> {
+) -> Result<Handle<'a, JsValue>> {
     let mut c = 0;
-    let obj = JsObject::new(&mut *cx);
+    let obj = cx.empty_object();
 
     while c < len {
         let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
         let (tag, bytes) = match decoded {
-            None => Result::Err(Error::from(ErrorKind::InvalidInput)),
             Some(v) => Result::Ok(v),
+            None => Result::Err(Error::from(ErrorKind::InvalidInput)),
         }?;
         c += bytes;
         let len = tag >> TAG_SIZE;
@@ -581,8 +580,8 @@ pub fn decode_object_neon<'a>(
 
         let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
         let (tag, bytes) = match decoded {
-            None => Err(Error::from(ErrorKind::InvalidInput)),
             Some(v) => Result::Ok(v),
+            None => Err(Error::from(ErrorKind::InvalidInput)),
         }?;
 
         let field_type = tag & TAG_MASK;
@@ -594,5 +593,5 @@ pub fn decode_object_neon<'a>(
         obj.set(cx, key, value);
     }
 
-    Ok(obj)
+    Ok(obj.upcast())
 }

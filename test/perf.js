@@ -32,7 +32,6 @@ for (var i = 0; i < N; i++) {
 }
 console.log('binary.seek(string)', N / (Date.now() - start))
 
-
 start = Date.now()
 var dependencies = Buffer.from('dependencies')
 var varint = Buffer.from('varint')
