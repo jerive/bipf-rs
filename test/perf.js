@@ -1,6 +1,6 @@
 let bipf = require('../index.node');
 let bipfReference = require('bipf');
-let pkg = require('../package.json');
+let pkg = require('./bipf-package.json');
 
 var N = 10000
 const encoded = bipf.encode(pkg);
