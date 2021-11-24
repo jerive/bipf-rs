@@ -4,41 +4,18 @@
 
 Rust port of https://github.com/ssbc/bipf
 
+TEST PROJECT
+
 ## Benchmark (Rust vs JS)
 
-
-### Rust
-
-Benchmark is as described in https://npm.io/package/@staltz/bipf
-
 ```
-operation               ops/ms  improvement to JS
-
-binary.encode           250     (x2.5)
-serde_json.stringify    650
-
-binary.decode           450     (x2)
-serde_json.parse        316
-
-binary.seek             7700    (x4)
-```
-
-### JS
-
-```
-operation, ops/ms
-
-binary.encode 96.15384615384616
-JSON.stringify 555.5555555555555
-binary.decode 208.33333333333334
-JSON.parse 476.1904761904762
-JSON.parse(buffer) 416.6666666666667
-JSON.stringify(JSON.parse()) 250
-binary.seek(string) 714.2857142857143
-binary.seek2(encoded) 1250
-binary.seek(buffer) 2000
-binary.seekPath(encoded) 769.2307692307693
-binary.seekPath(compiled) 1666.6666666666667
-binary.compare() 1666.6666666666667
+neon.binary.encode x 40,556 ops/sec ±0.69% (82 runs sampled)
+binary.encode x 41,677 ops/sec ±0.38% (82 runs sampled)
+neon.binary.decode x 72,686 ops/sec ±1.69% (82 runs sampled)
+binary.decode x 71,403 ops/sec ±0.49% (82 runs sampled)
+neon.binary.seek(string) x 651,465 ops/sec ±0.53% (85 runs sampled)
+binary.seek(string) x 644,308 ops/sec ±1.26% (77 runs sampled)
+neon.binary.seek(buffer) x 614,023 ops/sec ±1.03% (82 runs sampled)
+binary.seek(buffer) x 1,068,828 ops/sec ±1.06% (79 runs sampled)
 
 ```
