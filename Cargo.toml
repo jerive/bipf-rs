@@ -16,6 +16,11 @@ integer-encoding = "3.0"
 either = "1.6"
 indexmap = "1.7"
 neon = { version = "0.9", default-features = false, features = ["napi-6"] }
+node-bindgen = { version = "5.0.0", features = ["serde-json"] }
+
+[build-dependencies]
+node-bindgen = { version = "5.0.0", features = ["build"] }
+
 
 [dev-dependencies]
 criterion = { version = "0.3", features = ["html_reports"] }

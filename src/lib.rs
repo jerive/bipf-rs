@@ -1,5 +1,6 @@
 use neon::prelude::*;
 mod bipf;
+mod bindgen_impl;
 
 pub use crate::bipf::*;
 mod neon_impl;

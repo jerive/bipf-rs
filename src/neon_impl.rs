@@ -433,13 +433,13 @@ pub fn decode_type_neon<'a>(
     len: usize,
 ) -> Result<Handle<'a, JsValue>> {
     match field_type {
-        STRING => Ok(decode_string_neon(cx, buf, start, len)?),
-        BOOLNULL => Ok(decode_boolnull_neon(cx, buf, start, len)?),
-        INT => Ok(decode_integer_neon(cx, buf, start)?),
-        DOUBLE => Ok(decode_double_neon(cx, buf, start)?),
-        ARRAY => Ok(decode_array_neon(cx, buf, start, len)?),
-        OBJECT => Ok(decode_object_neon(cx, buf, start, len)?),
-        BUFFER => Ok(decode_buffer_neon(cx, buf, start, len)?),
+        STRING => decode_string_neon(cx, buf, start, len),
+        BOOLNULL => decode_boolnull_neon(cx, buf, start, len),
+        INT => decode_integer_neon(cx, buf, start),
+        DOUBLE => decode_double_neon(cx, buf, start),
+        ARRAY => decode_array_neon(cx, buf, start, len),
+        OBJECT => decode_object_neon(cx, buf, start, len),
+        BUFFER => decode_buffer_neon(cx, buf, start, len),
         _ => Err(Error::new(ErrorKind::Other, "invalid type")),
     }
 }
