@@ -11,12 +11,11 @@ use integer_encoding::*;
 
 #[node_bindgen(name="decode")]
 fn bindgen_decode(value: JSArrayBuffer, start: f64, env: JsEnv) -> Result<napi_value, NjError> {
-    // env.create_double(value)
     let start = start as usize;
-    decode_rec_bindgen(env, &value, start)
+    decode_rec_bindgen(env, &value, start as usize)
 }
 
-pub fn decode_rec_bindgen<'a>(
+pub fn decode_rec_bindgen(
     env: JsEnv,
     buf: &[u8],
     start: usize,
@@ -33,7 +32,7 @@ pub fn decode_rec_bindgen<'a>(
     decode_type_bindgen(env, field_type, buf, start + bytes, len)
 }
 
-pub fn decode_type_bindgen<'a>(
+pub fn decode_type_bindgen(
     cx: JsEnv,
     field_type: usize,
     buf: &[u8],
@@ -52,7 +51,7 @@ pub fn decode_type_bindgen<'a>(
     }
 }
 
-pub fn decode_boolnull_bindgen<'a>(
+pub fn decode_boolnull_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
@@ -76,7 +75,7 @@ pub fn decode_boolnull_bindgen<'a>(
     }
 }
 
-pub fn decode_string_bindgen<'a>(
+pub fn decode_string_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
@@ -85,7 +84,7 @@ pub fn decode_string_bindgen<'a>(
     cx.create_string_utf8_from_bytes(&buf[start..start + len])
 }
 
-pub fn decode_buffer_bindgen<'a>(
+pub fn decode_buffer_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
@@ -94,7 +93,7 @@ pub fn decode_buffer_bindgen<'a>(
     ArrayBuffer::new(buf[start..start + len].to_vec()).try_to_js(&cx)
 }
 
-pub fn decode_integer_bindgen<'a>(
+pub fn decode_integer_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
@@ -105,7 +104,7 @@ pub fn decode_integer_bindgen<'a>(
     cx.create_double(i32::from_le_bytes(bytes)as f64)
 }
 
-pub fn decode_double_bindgen<'a>(
+pub fn decode_double_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
@@ -116,15 +115,15 @@ pub fn decode_double_bindgen<'a>(
     cx.create_double(f64::from_le_bytes(bytes))
 }
 
-pub fn decode_array_bindgen<'a>(
+pub fn decode_array_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
     len: usize,
 ) -> Result<napi_value, NjError>{
     let mut c = 0;
-    let mut vec: Vec<napi_value> = Vec::new();
-
+    let arr = cx.create_array_with_len(0)?;
+    let mut i = 0;
     while c < len {
         let decoded: Option<(usize, usize)> = VarInt::decode_var(&buf[start + c..]);
         let (tag, bytes) = match decoded {
@@ -139,30 +138,22 @@ pub fn decode_array_bindgen<'a>(
         let field_type = tag & TAG_MASK;
         let len = tag >> TAG_SIZE;
 
-        vec.push(decode_type_bindgen(cx, field_type, buf, start + c, len)?);
-
-        c += len;
-    }
-
-    let arr = cx.create_array_with_len(vec.len())?;
-    let mut i = 0;
-    for item in vec {
-        cx.set_element(arr, item, i)?;
+        cx.set_element(arr, decode_type_bindgen(cx, field_type, buf, start + c, len)?, i)?;
         i += 1;
+        c += len;
     }
 
     Ok(arr)
 }
 
-pub fn decode_object_bindgen<'a>(
+pub fn decode_object_bindgen(
     cx: JsEnv,
     buf: &[u8],
     start: usize,
     len: usize,
 ) -> Result<napi_value, NjError>{
     let mut c = 0;
-    let obj = JsObject::create(&cx)?;
-    let obj_value = obj.napi_value();
+    let obj = cx.create_object()?;
     let napi_env = cx.inner();
 
     while c < len {
@@ -175,7 +166,7 @@ pub fn decode_object_bindgen<'a>(
         }?;
         c += bytes;
         let len = tag >> TAG_SIZE;
-        let key = match std::ffi::CString::new(buf[start+c ..start +c+ len].to_vec()) {
+        let key = match std::ffi::CString::new(&buf[start+c ..start +c+ len]) {
             Ok(s) => Ok(s),
             Err(_) => Err(NjError::Other(String::from(
                 "Could not create string"
@@ -198,11 +189,10 @@ pub fn decode_object_bindgen<'a>(
         let value = decode_type_bindgen(cx, field_type, buf, start + c, len)?;
         c += len;
         
-        // obj.set_property(&key, value)?;
         unsafe {
-            napi_set_named_property(napi_env, obj_value, key.as_ptr(), value);
+            napi_set_named_property(napi_env, obj, key.as_ptr(), value);
         }        
     }
 
-    Ok(obj_value)
+    Ok(obj)
 }

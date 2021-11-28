@@ -7,8 +7,8 @@
     "index.node"
   ],
   "scripts": {
-    "build": "cargo-cp-artifact -nc index.node -- cargo build --message-format=json-render-diagnostics",
-    "build-bindgen": "nj-cli build --release",
+    "build": "cargo-cp-artifact -nc index.node -- cargo build --release --message-format=json-render-diagnostics",
+    "build-bindgen": "BINDGEN_ENABLED=1 nj-cli build --release",
     "build-debug": "npm run build --",
     "build-release": "npm run build -- --release",
     "install": "npm run build-release",
